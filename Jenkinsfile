@@ -27,14 +27,14 @@ pipeline {
             parallel {
                 stage('Frontend Dependencies') {
                     steps {
-                        dir('havenly_frontend') {
+                        dir('havenly_frontend-main') {
                             sh 'npm install'
                         }
                     }
                 }
                 stage('Backend Dependencies') {
                     steps {
-                        dir('havenly_backend') {
+                        dir('havenly_backend-main') {
                             sh 'npm install'
                         }
                     }
@@ -46,14 +46,14 @@ pipeline {
             parallel {
                 stage('Frontend Tests') {
                     steps {
-                        dir('havenly_frontend') {
+                        dir('havenly_frontend-main') {
                             sh 'npm run test'
                         }
                     }
                 }
                 stage('Backend Tests') {
                     steps {
-                        dir('havenly_backend') {
+                        dir('havenly_backend-main') {
                             sh 'npm run test'
                         }
                     }
@@ -65,7 +65,7 @@ pipeline {
             parallel {
                 stage('Build Frontend Image') {
                     steps {
-                        dir('havenly_frontend') {
+                        dir('havenly_frontend-main') {
                             script {
                                 docker.build("${FRONTEND_IMAGE}:${BUILD_NUMBER}")
                             }
@@ -74,7 +74,7 @@ pipeline {
                 }
                 stage('Build Backend Image') {
                     steps {
-                        dir('havenly_backend') {
+                        dir('havenly_backend-main') {
                             script {
                                 docker.build("${BACKEND_IMAGE}:${BUILD_NUMBER}")
                             }
