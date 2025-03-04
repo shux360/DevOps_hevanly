@@ -3,7 +3,7 @@ version: "3.8"
 services:
   frontend:
     build:
-      context: ./havenly_frontend
+      context: ./havenly_frontend-main
       dockerfile: Dockerfile
     ports:
       - "80:80"
@@ -14,7 +14,7 @@ services:
 
   backend:
     build:
-      context: ./havenly_backend
+      context: ./havenly_backend-main
       dockerfile: Dockerfile
     ports:
       - "3001:3001"
@@ -22,6 +22,6 @@ services:
       - MONGODB_URI=${MONGODB_URI}
       - JWT_SECRET=${JWT_SECRET}
     volumes:
-      - ./havenly_backend/havenly_backend:/app
+      - ./havenly_backend-main:/app
       - /app/node_modules
     restart: unless-stopped
