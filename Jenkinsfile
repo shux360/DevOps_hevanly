@@ -28,14 +28,14 @@ pipeline {
                 stage('Frontend Dependencies') {
                     steps {
                         dir('havenly_frontend-main') {
-                            sh 'npm install'
+                            bat 'npm install'
                         }
                     }
                 }
                 stage('Backend Dependencies') {
                     steps {
                         dir('havenly_backend-main') {
-                            sh 'npm install'
+                            bat 'npm install'
                         }
                     }
                 }
@@ -47,14 +47,14 @@ pipeline {
                 stage('Frontend Tests') {
                     steps {
                         dir('havenly_frontend-main') {
-                            sh 'npm run test'
+                            bat 'npm run test'
                         }
                     }
                 }
                 stage('Backend Tests') {
                     steps {
                         dir('havenly_backend-main') {
-                            sh 'npm run test'
+                            bat 'npm run test'
                         }
                     }
                 }
@@ -87,7 +87,7 @@ pipeline {
         stage('Login to Docker Registry') {
             steps {
                 withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIALS, passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
-                    sh "echo $DOCKER_PASSWORD | docker login $DOCKER_REGISTRY -u $DOCKER_USERNAME --password-stdin"
+                    bat "echo $DOCKER_PASSWORD | docker login $DOCKER_REGISTRY -u $DOCKER_USERNAME --password-stdin"
                 }
             }
         }
@@ -96,12 +96,12 @@ pipeline {
             parallel {
                 stage('Push Frontend Image') {
                     steps {
-                        sh "docker push ${FRONTEND_IMAGE}:${BUILD_NUMBER}"
+                        bat "docker push ${FRONTEND_IMAGE}:${BUILD_NUMBER}"
                     }
                 }
                 stage('Push Backend Image') {
                     steps {
-                        sh "docker push ${BACKEND_IMAGE}:${BUILD_NUMBER}"
+                        bat "docker push ${BACKEND_IMAGE}:${BUILD_NUMBER}"
                     }
                 }
             }
@@ -111,7 +111,7 @@ pipeline {
             steps {
                 script {
                     // Update docker-compose with new image tags
-                    sh """
+                    bat """
                         sed -i 's|${FRONTEND_IMAGE}:[^ ]*|${FRONTEND_IMAGE}:${BUILD_NUMBER}|g' docker-compose.yml
                         sed -i 's|${BACKEND_IMAGE}:[^ ]*|${BACKEND_IMAGE}:${BUILD_NUMBER}|g' docker-compose.yml
                         docker-compose up -d
@@ -124,7 +124,7 @@ pipeline {
     post {
         always {
             // Clean up Docker images
-            sh """
+            bat """
                 docker rmi ${FRONTEND_IMAGE}:${BUILD_NUMBER} || true
                 docker rmi ${BACKEND_IMAGE}:${BUILD_NUMBER} || true
             """
