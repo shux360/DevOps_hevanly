@@ -3,7 +3,7 @@ version: "3.8"
 services:
   frontend:
     build:
-      context: ./havenly_frontend-main
+      context: ./havenly_frontend
       dockerfile: Dockerfile
     ports:
       - "80:80"
@@ -14,7 +14,7 @@ services:
 
   backend:
     build:
-      context: ./havenly_backend-main
+      context: ./havenly_backend
       dockerfile: Dockerfile
     ports:
       - "3001:3001"
