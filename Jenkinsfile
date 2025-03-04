@@ -3,8 +3,8 @@ pipeline {
     
     environment {
         DOCKER_REGISTRY = 'docker.io/shux360'  // Replace with your registry
-        FRONTEND_IMAGE = "${DOCKER_REGISTRY}/havenly-frontend"
-        BACKEND_IMAGE = "${DOCKER_REGISTRY}/havenly-backend"
+        FRONTEND_IMAGE = "${DOCKER_REGISTRY}/havenly_frontend"
+        BACKEND_IMAGE = "${DOCKER_REGISTRY}/havenly_backend"
         DOCKER_CREDENTIALS = 'dockerhub-cred'  // Replace with your credentials ID
     }
 
