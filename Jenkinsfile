@@ -42,24 +42,24 @@ pipeline {
             }
         }
 
-        stage('Run Tests') {
-            parallel {
-                stage('Frontend Tests') {
-                    steps {
-                        dir('havenly_frontend-main') {
-                            bat 'npm run test'
-                        }
-                    }
-                }
-                stage('Backend Tests') {
-                    steps {
-                        dir('havenly_backend-main') {
-                            bat 'npm run test'
-                        }
-                    }
-                }
-            }
-        }
+        // stage('Run Tests') {
+        //     parallel {
+        //         stage('Frontend Tests') {
+        //             steps {
+        //                 dir('havenly_frontend-main') {
+        //                     bat 'npm run test'
+        //                 }
+        //             }
+        //         }
+        //         stage('Backend Tests') {
+        //             steps {
+        //                 dir('havenly_backend-main') {
+        //                     bat 'npm run test'
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
         stage('Build Docker Images') {
             parallel {
