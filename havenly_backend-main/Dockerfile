@@ -1,20 +1,24 @@
-# Use Node.js LTS version
-FROM node:18-alpine
+# Build stage
+FROM node:18-alpine as builder
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
+RUN npm ci --only=production
 
-# Install dependencies
-RUN npm install
-
-# Copy application files
 COPY . .
 
-# Expose the port the app runs on
+# Runtime stage
+FROM node:18-alpine
+
+WORKDIR /app
+
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app .
+
+ENV NODE_ENV=production
+ENV PORT=3001
+
 EXPOSE 3001
 
-# Start the application
 CMD ["npm", "start"]
