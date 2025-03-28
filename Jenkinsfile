@@ -3,8 +3,8 @@ pipeline {
     
     environment {
         DOCKER_REGISTRY = 'docker.io/shux360'  // Replace with your registry
-        FRONTEND_IMAGE = "${DOCKER_REGISTRY}/htf"
-        BACKEND_IMAGE = "${DOCKER_REGISTRY}/htb"
+        FRONTEND_IMAGE = "${DOCKER_REGISTRY}/devops_hevanly-frontend"
+        BACKEND_IMAGE = "${DOCKER_REGISTRY}/devops_hevanly-backend"
         DOCKER_CREDENTIALS = 'dockerhub-cred'  // Replace with your credentials ID
         // MONGODB_URI = credentials('mongodb-uri')
         // JWT_SECRET = credentials('jwt-secret')
