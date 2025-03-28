@@ -3,8 +3,8 @@ pipeline {
     
     environment {
         DOCKER_REGISTRY = 'docker.io/shux360'  // Replace with your registry
-        FRONTEND_IMAGE = "${DOCKER_REGISTRY}/havenly_frontend"
-        BACKEND_IMAGE = "${DOCKER_REGISTRY}/havenly_backend"
+        FRONTEND_IMAGE = "${DOCKER_REGISTRY}/htf"
+        BACKEND_IMAGE = "${DOCKER_REGISTRY}/htb"
         DOCKER_CREDENTIALS = 'dockerhub-cred'  // Replace with your credentials ID
         // MONGODB_URI = credentials('mongodb-uri')
         // JWT_SECRET = credentials('jwt-secret')
@@ -89,7 +89,7 @@ pipeline {
 
         stage('Login to Docker Registry') {
             steps {
-                withCredentials([usernamePassword(credentialsId: dockerhub-cred, passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                withCredentials([usernamePassword(credentialsId:'dockerhub-cred', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
                     bat "echo $DOCKER_PASSWORD | docker login $DOCKER_REGISTRY -u $DOCKER_USERNAME --password-stdin"
                 }
             }
