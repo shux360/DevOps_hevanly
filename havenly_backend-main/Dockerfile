@@ -1,20 +1,20 @@
-# Use Node.js LTS version
+# Use the official Node.js image from the Docker Hub
 FROM node:18-alpine
 
-# Set working directory
-WORKDIR /app
+# Set the working directory inside the container
+WORKDIR /src/App.jsx
 
-# Copy package files
+# Copy package.json and package-lock.json to the working directory
 COPY package*.json ./
 
 # Install dependencies
 RUN npm install
 
-# Copy application files
+# Copy the rest of the application code
 COPY . .
 
 # Expose the port the app runs on
-EXPOSE 3001
+EXPOSE 3000
 
-# Start the application
-CMD ["npm", "start"]
+# Command to run the application
+CMD ["npm", "run", "dev"]
