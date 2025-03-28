@@ -67,7 +67,7 @@ pipeline {
                     steps {
                         dir('havenly_frontend-main') {
                             script {
-                                docker.build("${FRONTEND_IMAGE}:${BUILD_NUMBER}")
+                                sh "docker build -t ${FRONTEND_IMAGE}:${BUILD_NUMBER}"
                             }
                         }
                     }
@@ -76,7 +76,7 @@ pipeline {
                     steps {
                         dir('havenly_backend-main') {
                             script {
-                                docker.build("${BACKEND_IMAGE}:${BUILD_NUMBER}")
+                                sh "docker build -t ${BACKEND_IMAGE}:${BUILD_NUMBER}"
                             }
                         }
                     }
@@ -86,7 +86,7 @@ pipeline {
 
         stage('Login to Docker Registry') {
             steps {
-                withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIALS, passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                withCredentials([usernamePassword(credentialsId: dockerhub-cred, passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
                     bat "echo $DOCKER_PASSWORD | docker login $DOCKER_REGISTRY -u $DOCKER_USERNAME --password-stdin"
                 }
             }
