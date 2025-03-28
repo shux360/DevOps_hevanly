@@ -2,77 +2,84 @@ pipeline {
     agent any
     
     environment {
-        DOCKER_REGISTRY = 'docker.io/shux360'
+        DOCKER_REGISTRY = 'docker.io/shux360'  // Replace with your registry
         FRONTEND_IMAGE = "${DOCKER_REGISTRY}/havenly_frontend"
         BACKEND_IMAGE = "${DOCKER_REGISTRY}/havenly_backend"
-        DOCKER_CREDENTIALS = 'dockerhub-cred'
-        GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        DOCKER_CREDENTIALS = 'dockerhub-cred'  // Replace with your credentials ID
+        MONGODB_URI = credentials('mongodb-uri')
+        JWT_SECRET = credentials('jwt-secret')
+
     }
 
     stages {
-        stage('Checkout') {
+        stage('Github Trigger') {
+            steps {
+                script {
+                    properties([pipelineTriggers([githubPush()])])
+                }
+            }
+        }
+
+        stage('SCM Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        stage('Test') {
+        stage('Install Dependencies') {
             parallel {
-                stage('Backend Tests') {
-                    steps {
-                        dir('havenly_backend-main') {
-                            sh 'npm install'
-                            sh 'npm test'
-                        }
-                    }
-                }
-                stage('Frontend Tests') {
+                stage('Frontend Dependencies') {
                     steps {
                         dir('havenly_frontend-main') {
-                            sh 'npm install'
-                            sh 'npm test'
+                            bat 'npm install'
+                        }
+                    }
+                }
+                stage('Backend Dependencies') {
+                    steps {
+                        dir('havenly_backend-main') {
+                            bat 'npm install'
                         }
                     }
                 }
             }
         }
 
-        stage('Build') {
+        // stage('Run Tests') {
+        //     parallel {
+        //         stage('Frontend Tests') {
+        //             steps {
+        //                 dir('havenly_frontend-main') {
+        //                     bat 'npm run test'
+        //                 }
+        //             }
+        //         }
+        //         stage('Backend Tests') {
+        //             steps {
+        //                 dir('havenly_backend-main') {
+        //                     bat 'npm run test'
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+
+        stage('Build Docker Images') {
             parallel {
-                stage('Build Frontend') {
+                stage('Build Frontend Image') {
                     steps {
-                        script {
-                            withCredentials([string(credentialsId: 'vite-api-url', variable: 'VITE_API_URL')]) {
-                                dir('havenly_frontend-main') {
-                                    sh """
-                                        docker build \
-                                            --build-arg VITE_API_URL=${VITE_API_URL} \
-                                            -t ${FRONTEND_IMAGE}:${GIT_COMMIT_SHORT} \
-                                            -t ${FRONTEND_IMAGE}:latest \
-                                            .
-                                    """
-                                }
+                        dir('havenly_frontend-main') {
+                            script {
+                                sh "docker build -t ${FRONTEND_IMAGE}:${BUILD_NUMBER}"
                             }
                         }
                     }
                 }
-                stage('Build Backend') {
+                stage('Build Backend Image') {
                     steps {
-                        script {
-                            withCredentials([
-                                string(credentialsId: 'jwt-secret', variable: 'JWT_SECRET'),
-                                string(credentialsId: 'mongodb-uri', variable: 'MONGODB_URI')
-                            ]) {
-                                dir('havenly_backend-main') {
-                                    sh """
-                                        docker build \
-                                            --build-arg MONGODB_URI=${MONGODB_URI} \
-                                            --build-arg JWT_SECRET=${JWT_SECRET} \
-                                            -t ${BACKEND_IMAGE}:${GIT_COMMIT_SHORT} \
-                                            -t ${BACKEND_IMAGE}:latest \
-                                            .
-                                    """
-                                }
+                        dir('havenly_backend-main') {
+                            script {
+                                sh "docker build -t ${BACKEND_IMAGE}:${BUILD_NUMBER}"
                             }
                         }
                     }
@@ -80,29 +87,38 @@ pipeline {
             }
         }
 
-        stage('Push Images') {
+        stage('Login to Docker Registry') {
             steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: env.DOCKER_CREDENTIALS,
-                        usernameVariable: 'DOCKER_USERNAME',
-                        passwordVariable: 'DOCKER_PASSWORD'
-                    )]) {
-                        sh "echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin"
-                        sh "docker push ${FRONTEND_IMAGE}:${GIT_COMMIT_SHORT}"
-                        sh "docker push ${FRONTEND_IMAGE}:latest"
-                        sh "docker push ${BACKEND_IMAGE}:${GIT_COMMIT_SHORT}"
-                        sh "docker push ${BACKEND_IMAGE}:latest"
+                withCredentials([usernamePassword(credentialsId: dockerhub-cred, passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                    bat "echo $DOCKER_PASSWORD | docker login $DOCKER_REGISTRY -u $DOCKER_USERNAME --password-stdin"
+                }
+            }
+        }
+
+        stage('Push Docker Images') {
+            parallel {
+                stage('Push Frontend Image') {
+                    steps {
+                        bat "docker push ${FRONTEND_IMAGE}:${BUILD_NUMBER}"
+                    }
+                }
+                stage('Push Backend Image') {
+                    steps {
+                        bat "docker push ${BACKEND_IMAGE}:${BUILD_NUMBER}"
                     }
                 }
             }
         }
 
-        stage('Deploy') {
+        stage('Deploy to Development') {
             steps {
                 script {
-                    sh "docker-compose down || true"
-                    sh "docker-compose up -d"
+                    // Update docker-compose with new image tags
+                    bat """
+                        sed -i 's|${FRONTEND_IMAGE}:[^ ]*|${FRONTEND_IMAGE}:${BUILD_NUMBER}|g' docker-compose.yml
+                        sed -i 's|${BACKEND_IMAGE}:[^ ]*|${BACKEND_IMAGE}:${BUILD_NUMBER}|g' docker-compose.yml
+                        docker-compose up -d
+                    """
                 }
             }
         }
@@ -110,16 +126,20 @@ pipeline {
 
     post {
         always {
-            script {
-                sh "docker logout || true"
-                cleanWs()
-            }
+            // Clean up Docker images
+            bat """
+                docker rmi ${FRONTEND_IMAGE}:${BUILD_NUMBER} || true
+                docker rmi ${BACKEND_IMAGE}:${BUILD_NUMBER} || true
+            """
+            // Clean workspace
+            cleanWs()
         }
         success {
-            slackSend(color: 'good', message: "Build ${BUILD_NUMBER} succeeded!")
+            echo 'Pipeline completed successfully!'
         }
         failure {
-            slackSend(color: 'danger', message: "Build ${BUILD_NUMBER} failed!")
+            echo 'Pipeline failed!'
+            // Add notification steps here (email, Slack, etc.)
         }
     }
 }

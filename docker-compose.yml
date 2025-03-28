@@ -2,7 +2,9 @@ version: "3.8"
 
 services:
   frontend:
-    image: ${FRONTEND_IMAGE}:latest
+    build:
+      context: ./havenly_frontend-main
+      dockerfile: Dockerfile
     ports:
       - "80:80"
     depends_on:
@@ -11,12 +13,15 @@ services:
       - VITE_API_URL=http://backend:3001
 
   backend:
-    image: ${BACKEND_IMAGE}:latest
+    build:
+      context: ./havenly_backend-main
+      dockerfile: Dockerfile
     ports:
       - "3001:3001"
     environment:
       - MONGODB_URI=${MONGODB_URI}
       - JWT_SECRET=${JWT_SECRET}
     volumes:
-      - ./havenly_backend-main/uploads:/app/public/uploads
+      - ./havenly_backend-main:/app
+      - /app/node_modules
     restart: unless-stopped
