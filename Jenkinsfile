@@ -6,8 +6,8 @@ pipeline {
         FRONTEND_IMAGE = "${DOCKER_REGISTRY}/havenly_frontend"
         BACKEND_IMAGE = "${DOCKER_REGISTRY}/havenly_backend"
         DOCKER_CREDENTIALS = 'dockerhub-cred'  // Replace with your credentials ID
-        MONGODB_URI = credentials('mongodb-uri')
-        JWT_SECRET = credentials('jwt-secret')
+        // MONGODB_URI = credentials('mongodb-uri')
+        // JWT_SECRET = credentials('jwt-secret')
 
     }
 
