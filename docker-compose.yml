@@ -1,27 +1,36 @@
 version: "3.8"
 
 services:
-  frontend:
-    build:
-      context: ./havenly_frontend-main
-      dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-    environment:
-      - VITE_API_URL=http://localhost:3001
-
   backend:
-    build:
-      context: ./havenly_backend-main
-      dockerfile: Dockerfile
+    build: ./havenly_backend-main
     ports:
       - "3001:3001"
-    environment:
-      - MONGODB_URI=${MONGODB_URI}
-      - JWT_SECRET=${JWT_SECRET}
+    # environment:
+    #   - NODE_ENV=production
+    # volumes:
+    #   - ./havenly_backend:/app
+    #   - /app/node_modules
+    depends_on:
+      - mongo
+
+  frontend:
+    build: ./havenly_frontend-main
+    ports:
+      - "5173:5173"
+    # environment:
+    #   - NODE_ENV=production
+    # volumes:
+    #   - ./havenlyfrontend:/app
+    #   - /app/node_modules
+    depends_on:
+      - backend
+
+  mongo:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
     volumes:
-      - ./havenly_backend-main:/app
-      - /app/node_modules
-    restart: unless-stopped
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data:

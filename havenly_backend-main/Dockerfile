@@ -2,13 +2,11 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy all necessary files
-COPY . .  
+COPY package*.json ./
 
-# Ensure package.json exists before running npm install
 RUN npm install -g nodemon
-RUN ls -l /app && npm install
+RUN npm install
 
-EXPOSE 3001
+COPY . .
 
 CMD ["npm", "start"]
