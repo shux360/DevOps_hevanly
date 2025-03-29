@@ -58,22 +58,6 @@ pipeline {
                     returnStatus: true
                 )
                 
-                // Method 2: Fallback if first fails
-                if (loginStatus != 0) {
-                    echo "Standard login failed, trying alternative method"
-                    bat """
-                        set DOCKER_CONFIG=%WORKSPACE%\\docker-config
-                        mkdir %DOCKER_CONFIG%
-                        echo ^{
-                          \"auths\": {
-                            \"https://index.docker.io/v1/\": {
-                              \"auth\": \"${Base64.getEncoder().encodeToString("${DOCKER_USERNAME}:${DOCKER_TOKEN}".getBytes())}\"
-                            }
-                          }
-                        } > %DOCKER_CONFIG%\\config.json
-                        set DOCKER_CONFIG=%DOCKER_CONFIG%
-                    """
-                }
                 }
             }
         }
