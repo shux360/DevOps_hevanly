@@ -100,7 +100,18 @@ pipeline {
                 }
             }
         }
-
+        stage('Debug Credentials') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-cred',
+                    passwordVariable: 'DOCKER_PASSWORD',
+                    usernameVariable: 'DOCKER_USERNAME'
+                )]) {
+                    bat "echo Logging in to %DOCKER_REGISTRY% as %DOCKER_USERNAME%"
+                    // bat "echo %DOCKER_PASSWORD% | docker login %DOCKER_REGISTRY% -u %DOCKER_USERNAME% --password-stdin"
+                }
+            }
+        }
         stage('Login to Docker Registry') {
             steps {
                 withCredentials([usernamePassword(credentialsId:'dockerhub-cred', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
