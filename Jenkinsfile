@@ -52,11 +52,8 @@ pipeline {
                     // Method 1: Standard login
                     bat """
                         docker logout
-                        echo %DOCKER_PASSWORD% | docker login -u %DOCKER_USERNAME% --password-stdin
+                        docker login -u %DOCKER_USERNAME% -p %DOCKER_TOKEN%
                     """
-                    
-                    // Verify login worked
-                    bat 'docker pull hello-world || echo "Login verification failed"'
                 }
             }
         }
