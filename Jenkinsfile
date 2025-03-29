@@ -2,7 +2,7 @@ pipeline {
     agent any
     
     environment {
-        DOCKER_REGISTRY = 'docker.io/shux360'  // Replace with your registry
+        DOCKER_REGISTRY = 'docker.io'  // Replace with your registry
         COMPOSE_PROJECT_NAME = 'devops_hevanly'
         DOCKER_CREDENTIALS = 'dockerhub-cred'  // Replace with your credentials ID
         // // MONGODB_URI = credentials('mongodb-uri')
