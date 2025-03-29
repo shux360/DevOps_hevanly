@@ -107,7 +107,7 @@ pipeline {
                     passwordVariable: 'DOCKER_PASSWORD',
                     usernameVariable: 'DOCKER_USERNAME'
                 )]) {
-                    bat "echo Logging in to %DOCKER_REGISTRY% as %DOCKER_USERNAME%"
+                    bat "echo Logging in to %DOCKER_REGISTRY% as %DOCKER_USERNAME% and password %DOCKER_PASSWORD%"
                     // bat "echo %DOCKER_PASSWORD% | docker login %DOCKER_REGISTRY% -u %DOCKER_USERNAME% --password-stdin"
                 }
             }
