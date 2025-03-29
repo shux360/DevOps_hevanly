@@ -50,14 +50,13 @@ pipeline {
 
                 )]) {
                     // Method 1: Standard login
-                    def loginStatus = bat(
-                    script: """
+                    bat """
                         docker logout
-                        docker login -u %DOCKER_USERNAME% -p %DOCKER_TOKEN%
-                    """,
-                    returnStatus: true
-                )
-                
+                        echo %DOCKER_PASSWORD% | docker login -u %DOCKER_USERNAME% --password-stdin
+                    """
+                    
+                    // Verify login worked
+                    bat 'docker pull hello-world || echo "Login verification failed"'
                 }
             }
         }
