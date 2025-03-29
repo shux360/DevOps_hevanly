@@ -16,6 +16,14 @@ pipeline {
     }
 
     stages {
+        stage('Github Trigger') {
+            steps {
+                script {
+                    properties([pipelineTriggers([githubPush()])])
+                }
+            }
+        }
+
         stage('SCM Checkout') {
             steps {
                 checkout scm
