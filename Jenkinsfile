@@ -2,170 +2,103 @@ pipeline {
     agent any
     
     environment {
-        DOCKER_REGISTRY = 'docker.io'  // Replace with your registry
+        // Use just 'docker.io' as the registry (without your username)
+        DOCKER_REGISTRY = 'docker.io'  
+        DOCKERHUB_USERNAME = 'shux360'
         COMPOSE_PROJECT_NAME = 'devops_hevanly'
-        DOCKER_CREDENTIALS = 'dockerhub-cred'  // Replace with your credentials ID
-        // // MONGODB_URI = credentials('mongodb-uri')
-        // JWT_SECRET = credentials('jwt-secret')
-
+        // Make sure this credential uses your access token as password
+        DOCKER_CREDENTIALS = 'dockerhub-cred'  
     }
 
     stages {
-        stage('Github Trigger') {
+        stage('Verify Docker Setup') {
             steps {
                 script {
-                    properties([pipelineTriggers([githubPush()])])
-                }
-            }
-        }
-
-        stage('SCM Checkout') {
-            steps {
-                checkout scm
-            }
-        }
-
-        // stage('Install Dependencies') {
-        //     parallel {
-        //         stage('Frontend Dependencies') {
-        //             steps {
-        //                 dir('havenly_frontend-main') {
-        //                     bat 'npm install'
-        //                 }
-        //             }
-        //         }
-        //         stage('Backend Dependencies') {
-        //             steps {
-        //                 dir('havenly_backend-main') {
-        //                     bat 'npm install'
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-
-        // // stage('Run Tests') {
-        // //     parallel {
-        // //         stage('Frontend Tests') {
-        // //             steps {
-        // //                 dir('havenly_frontend-main') {
-        // //                     bat 'npm run test'
-        // //                 }
-        // //             }
-        // //         }
-        // //         stage('Backend Tests') {
-        // //             steps {
-        // //                 dir('havenly_backend-main') {
-        // //                     bat 'npm run test'
-        // //                 }
-        // //             }
-        // //         }
-        // //     }
-        // // }
-
-        //     stage('Build Docker Images') {
-        //         parallel {
-        //             stage('Build Frontend Image') {
-        //                 steps {
-        //                     dir('havenly_frontend-main') {
-        //                         script {
-        //                             bat "docker build -t %FRONTEND_IMAGE%:%BUILD_NUMBER%"
-        //                         }
-        //                     }
-        //                 }
-        //             }
-        //             stage('Build Backend Image') {
-        //                 steps {
-        //                     dir('havenly_backend-main') {
-        //                         script {
-        //                             bat "docker build -t %BACKEND_IMAGE%:%BUILD_NUMBER%"
-        //                         }
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-
-        stage('Build with Docker Compose') {
-            steps {
-                script {
-                    // Build all services defined in docker-compose.yml
-                    bat "docker-compose build"
-                    
-                    // Tag the built images with the build number
-                    bat """
-                        docker tag ${COMPOSE_PROJECT_NAME}-frontend ${DOCKER_REGISTRY}/${COMPOSE_PROJECT_NAME}-frontend:${BUILD_NUMBER}
-                        docker tag ${COMPOSE_PROJECT_NAME}-backend ${DOCKER_REGISTRY}/${COMPOSE_PROJECT_NAME}-backend:${BUILD_NUMBER}
-                    """
-                }
-            }
-        }
-        stage('Debug Credentials') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'dockerhub-cred',
-                    passwordVariable: 'DOCKER_PASSWORD',
-                    usernameVariable: 'DOCKER_USERNAME'
-                )]) {
-                    bat "echo Logging in to %DOCKER_REGISTRY% as %DOCKER_USERNAME% and password %DOCKER_PASSWORD%"
-                    // bat "echo %DOCKER_PASSWORD% | docker login %DOCKER_REGISTRY% -u %DOCKER_USERNAME% --password-stdin"
-                }
-            }
-        }
-        stage('Login to Docker Registry') {
-            steps {
-                withCredentials([usernamePassword(credentialsId:'dockerhub-cred', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
-                    bat "echo %DOCKER_PASSWORD% | docker login %DOCKER_REGISTRY% -u %DOCKER_USERNAME% --password-stdin"
-                }
-            }
-        }
-
-        stage('Push Docker Images') {
-            parallel {
-                stage('Push Frontend Image') {
-                    steps {
-                        bat "docker push ${FRONTEND_IMAGE}:${BUILD_NUMBER}"
-                    }
-                }
-                stage('Push Backend Image') {
-                    steps {
-                        bat "docker push ${BACKEND_IMAGE}:${BUILD_NUMBER}"
+                    try {
+                        // Check Docker is working
+                        bat 'docker --version'
+                        // Verify network connectivity to Docker Hub
+                        bat 'ping registry-1.docker.io -n 2'
+                    } catch (Exception e) {
+                        error("Docker setup verification failed: ${e.message}")
                     }
                 }
             }
         }
 
-        stage('Deploy to Development') {
+        stage('Build Images') {
+            steps {
+                bat 'docker-compose build'
+            }
+        }
+
+        stage('Tag Images') {
+            steps {
+                bat """
+                    docker tag ${COMPOSE_PROJECT_NAME}-frontend ${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-frontend:${BUILD_NUMBER}
+                    docker tag ${COMPOSE_PROJECT_NAME}-backend ${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-backend:${BUILD_NUMBER}
+                """
+            }
+        }
+
+        stage('Docker Login') {
             steps {
                 script {
-                    // Update docker-compose with new image tags
-                    bat """
-                        sed -i 's|${FRONTEND_IMAGE}:[^ ]*|${FRONTEND_IMAGE}:${BUILD_NUMBER}|g' docker-compose.yml
-                        sed -i 's|${BACKEND_IMAGE}:[^ ]*|${BACKEND_IMAGE}:${BUILD_NUMBER}|g' docker-compose.yml
-                        docker-compose up -d
-                    """
+                    withCredentials([usernamePassword(
+                        credentialsId: env.DOCKER_CREDENTIALS,
+                        passwordVariable: 'DOCKER_TOKEN',
+                        usernameVariable: 'DOCKER_USERNAME'
+                    )]) {
+                        // First attempt - standard login
+                        def loginAttempt = bat(
+                            script: "docker login -u %DOCKER_USERNAME% -p %DOCKER_TOKEN%",
+                            returnStatus: true
+                        )
+                        
+                        // Second attempt - alternative method if first fails
+                        if (loginAttempt != 0) {
+                            echo "Standard login failed, trying alternative method"
+                            bat """
+                                set DOCKER_CONFIG=%TEMP%\\docker-config
+                                mkdir %DOCKER_CONFIG%
+                                echo ^{
+                                  \"auths\": {
+                                    \"https://index.docker.io/v1/\": {
+                                      \"auth\": \"${Base64.getEncoder().encodeToString("${DOCKER_USERNAME}:${DOCKER_TOKEN}".getBytes())}\"
+                                    }
+                                  }
+                                } > %DOCKER_CONFIG%\\config.json
+                                set DOCKER_CONFIG=%DOCKER_CONFIG%
+                                docker login -u %DOCKER_USERNAME% --password-stdin <<< %DOCKER_TOKEN%
+                            """
+                        }
+                        
+                        // Verify login succeeded
+                        bat 'docker info | find "Username"'
+                    }
                 }
+            }
+        }
+
+        stage('Push Images') {
+            steps {
+                bat """
+                    docker push ${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-frontend:${BUILD_NUMBER}
+                    docker push ${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-backend:${BUILD_NUMBER}
+                """
             }
         }
     }
 
     post {
         always {
-            // Clean up Docker images
-            bat """
-                docker rmi ${FRONTEND_IMAGE}:${BUILD_NUMBER} || true
-                docker rmi ${BACKEND_IMAGE}:${BUILD_NUMBER} || true
-            """
-            // Clean workspace
-            cleanWs()
-        }
-        success {
-            echo 'Pipeline completed successfully!'
-        }
-        failure {
-            echo 'Pipeline failed!'
-            // Add notification steps here (email, Slack, etc.)
+            script {
+                // Cleanup commands with error suppression
+                bat(script: 'docker logout || true', returnStatus: true)
+                bat(script: 'docker rmi ${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-frontend:${BUILD_NUMBER} || true', returnStatus: true)
+                bat(script: 'docker rmi ${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-backend:${BUILD_NUMBER} || true', returnStatus: true)
+                cleanWs()
+            }
         }
     }
 }
-
