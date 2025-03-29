@@ -2,46 +2,64 @@ pipeline {
     agent any
     
     environment {
-        // Use just 'docker.io' as the registry (without your username)
-        DOCKER_REGISTRY = 'docker.io'  
-        DOCKERHUB_USERNAME = 'shux360'
+        // Docker configuration
+        DOCKER_REGISTRY = 'index.docker.io'  // More reliable endpoint
+        DOCKERHUB_USERNAME = 'shux360'       // Your Docker Hub username
         COMPOSE_PROJECT_NAME = 'devops_hevanly'
-        // Make sure this credential uses your access token as password
-        DOCKER_CREDENTIALS = 'dockerhub-cred'  
+        
+        // Jenkins credential ID for Docker Hub (username + access token)
+        DOCKER_CREDENTIALS = 'dockerhub-token'  
+        
+        // Uncomment and configure if behind corporate proxy/firewall:
+        // http_proxy = "http://yourproxy:port"
+        // https_proxy = "http://yourproxy:port"
     }
 
     stages {
-        stage('Verify Docker Setup') {
+        stage('Network Pre-Checks') {
             steps {
                 script {
-                    try {
-                        // Check Docker is working
-                        bat 'docker --version'
-                        // Verify network connectivity to Docker Hub
-                        bat 'ping registry-1.docker.io -n 2'
-                    } catch (Exception e) {
-                        error("Docker setup verification failed: ${e.message}")
+                    // 1. Verify Docker is installed
+                    bat 'docker --version'
+                    
+                    // 2. Check DNS resolution
+                    bat 'nslookup registry-1.docker.io'
+                    
+                    // 3. Test HTTPS connectivity to Docker Hub
+                    def curlStatus = bat(
+                        script: 'curl -I https://registry-1.docker.io/v2/ -m 10 --retry 2',
+                        returnStatus: true
+                    )
+                    
+                    if (curlStatus != 0) {
+                        error("""
+                            ❌ Network connectivity test failed!
+                            Possible issues:
+                            1. No internet access from Jenkins server
+                            2. Corporate firewall blocking Docker Hub
+                            3. Proxy configuration needed (uncomment http_proxy vars)
+                            """)
                     }
                 }
             }
         }
 
-        stage('Build Images') {
+        stage('Build & Tag Images') {
             steps {
-                bat 'docker-compose build'
+                script {
+                    // Build using docker-compose
+                    bat 'docker-compose build'
+                    
+                    // Tag with build number
+                    bat """
+                        docker tag ${COMPOSE_PROJECT_NAME}-frontend ${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-frontend:${BUILD_NUMBER}
+                        docker tag ${COMPOSE_PROJECT_NAME}-backend ${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-backend:${BUILD_NUMBER}
+                    """
+                }
             }
         }
 
-        stage('Tag Images') {
-            steps {
-                bat """
-                    docker tag ${COMPOSE_PROJECT_NAME}-frontend ${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-frontend:${BUILD_NUMBER}
-                    docker tag ${COMPOSE_PROJECT_NAME}-backend ${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-backend:${BUILD_NUMBER}
-                """
-            }
-        }
-
-        stage('Docker Login') {
+        stage('Docker Hub Login') {
             steps {
                 script {
                     withCredentials([usernamePassword(
@@ -49,17 +67,21 @@ pipeline {
                         passwordVariable: 'DOCKER_TOKEN',
                         usernameVariable: 'DOCKER_USERNAME'
                     )]) {
-                        // First attempt - standard login
-                        def loginAttempt = bat(
-                            script: "docker login -u %DOCKER_USERNAME% -p %DOCKER_TOKEN%",
+                        // Method 1: Standard login
+                        def loginStatus = bat(
+                            script: """
+                                docker logout
+                                echo %DOCKER_TOKEN% | docker login -u %DOCKER_USERNAME% --password-stdin
+                            """,
                             returnStatus: true
                         )
                         
-                        // Second attempt - alternative method if first fails
-                        if (loginAttempt != 0) {
-                            echo "Standard login failed, trying alternative method"
+                        // Method 2: Fallback if first fails
+                        if (loginStatus != 0) {
+                            echo "⚠️ Standard login failed, trying alternative method"
                             bat """
-                                set DOCKER_CONFIG=%TEMP%\\docker-config
+                                docker logout
+                                set DOCKER_CONFIG=%WORKSPACE%\\docker-config
                                 mkdir %DOCKER_CONFIG%
                                 echo ^{
                                   \"auths\": {
@@ -73,8 +95,14 @@ pipeline {
                             """
                         }
                         
-                        // Verify login succeeded
-                        bat 'docker info | find "Username"'
+                        // Final verification
+                        def verifyLogin = bat(
+                            script: 'docker pull hello-world',
+                            returnStatus: true
+                        )
+                        if (verifyLogin != 0) {
+                            error("❌ Docker login verification failed! Check credentials.")
+                        }
                     }
                 }
             }
@@ -88,17 +116,38 @@ pipeline {
                 """
             }
         }
+
+        stage('Deploy') {
+            steps {
+                bat """
+                    docker-compose down
+                    docker-compose pull
+                    docker-compose up -d
+                """
+            }
+        }
     }
 
     post {
         always {
             script {
-                // Cleanup commands with error suppression
-                bat(script: 'docker logout || true', returnStatus: true)
-                bat(script: 'docker rmi ${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-frontend:${BUILD_NUMBER} || true', returnStatus: true)
-                bat(script: 'docker rmi ${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-backend:${BUILD_NUMBER} || true', returnStatus: true)
+                // Cleanup Docker artifacts
+                bat 'docker logout || true'
+                bat """
+                    docker rmi ${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-frontend:${BUILD_NUMBER} || true
+                    docker rmi ${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-backend:${BUILD_NUMBER} || true
+                    docker rmi ${COMPOSE_PROJECT_NAME}-frontend || true
+                    docker rmi ${COMPOSE_PROJECT_NAME}-backend || true
+                """
                 cleanWs()
             }
+        }
+        success {
+            echo '✅ Pipeline completed successfully!'
+        }
+        failure {
+            echo '❌ Pipeline failed! Check network connectivity and Docker Hub credentials.'
+            // Optional: Add Slack/email notification here
         }
     }
 }
