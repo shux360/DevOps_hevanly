@@ -94,8 +94,8 @@ pipeline {
                     
                     // Tag the built images with the build number
                     bat """
-                        docker tag ${COMPOSE_PROJECT_NAME}_frontend ${DOCKER_REGISTRY}/${COMPOSE_PROJECT_NAME}-frontend:${BUILD_NUMBER}
-                        docker tag ${COMPOSE_PROJECT_NAME}_backend ${DOCKER_REGISTRY}/${COMPOSE_PROJECT_NAME}-backend:${BUILD_NUMBER}
+                        docker tag ${COMPOSE_PROJECT_NAME}-frontend ${DOCKER_REGISTRY}/${COMPOSE_PROJECT_NAME}-frontend:${BUILD_NUMBER}
+                        docker tag ${COMPOSE_PROJECT_NAME}-backend ${DOCKER_REGISTRY}/${COMPOSE_PROJECT_NAME}-backend:${BUILD_NUMBER}
                     """
                 }
             }
