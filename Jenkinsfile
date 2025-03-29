@@ -3,10 +3,9 @@ pipeline {
     
     environment {
         DOCKER_REGISTRY = 'docker.io/shux360'  // Replace with your registry
-        FRONTEND_IMAGE = "${DOCKER_REGISTRY}/devops_hevanly-frontend"
-        BACKEND_IMAGE = "${DOCKER_REGISTRY}/devops_hevanly-backend"
+        COMPOSE_PROJECT_NAME = 'devops_hevanly'
         DOCKER_CREDENTIALS = 'dockerhub-cred'  // Replace with your credentials ID
-        // MONGODB_URI = credentials('mongodb-uri')
+        // // MONGODB_URI = credentials('mongodb-uri')
         // JWT_SECRET = credentials('jwt-secret')
 
     }
@@ -26,63 +25,78 @@ pipeline {
             }
         }
 
-        stage('Install Dependencies') {
-            parallel {
-                stage('Frontend Dependencies') {
-                    steps {
-                        dir('havenly_frontend-main') {
-                            bat 'npm install'
-                        }
-                    }
-                }
-                stage('Backend Dependencies') {
-                    steps {
-                        dir('havenly_backend-main') {
-                            bat 'npm install'
-                        }
-                    }
-                }
-            }
-        }
-
-        // stage('Run Tests') {
+        // stage('Install Dependencies') {
         //     parallel {
-        //         stage('Frontend Tests') {
+        //         stage('Frontend Dependencies') {
         //             steps {
         //                 dir('havenly_frontend-main') {
-        //                     bat 'npm run test'
+        //                     bat 'npm install'
         //                 }
         //             }
         //         }
-        //         stage('Backend Tests') {
+        //         stage('Backend Dependencies') {
         //             steps {
         //                 dir('havenly_backend-main') {
-        //                     bat 'npm run test'
+        //                     bat 'npm install'
         //                 }
         //             }
         //         }
         //     }
         // }
 
-        stage('Build Docker Images') {
-            parallel {
-                stage('Build Frontend Image') {
-                    steps {
-                        dir('havenly_frontend-main') {
-                            script {
-                                sh "docker build -t ${FRONTEND_IMAGE}:${BUILD_NUMBER}"
-                            }
-                        }
-                    }
-                }
-                stage('Build Backend Image') {
-                    steps {
-                        dir('havenly_backend-main') {
-                            script {
-                                sh "docker build -t ${BACKEND_IMAGE}:${BUILD_NUMBER}"
-                            }
-                        }
-                    }
+        // // stage('Run Tests') {
+        // //     parallel {
+        // //         stage('Frontend Tests') {
+        // //             steps {
+        // //                 dir('havenly_frontend-main') {
+        // //                     bat 'npm run test'
+        // //                 }
+        // //             }
+        // //         }
+        // //         stage('Backend Tests') {
+        // //             steps {
+        // //                 dir('havenly_backend-main') {
+        // //                     bat 'npm run test'
+        // //                 }
+        // //             }
+        // //         }
+        // //     }
+        // // }
+
+        //     stage('Build Docker Images') {
+        //         parallel {
+        //             stage('Build Frontend Image') {
+        //                 steps {
+        //                     dir('havenly_frontend-main') {
+        //                         script {
+        //                             bat "docker build -t %FRONTEND_IMAGE%:%BUILD_NUMBER%"
+        //                         }
+        //                     }
+        //                 }
+        //             }
+        //             stage('Build Backend Image') {
+        //                 steps {
+        //                     dir('havenly_backend-main') {
+        //                         script {
+        //                             bat "docker build -t %BACKEND_IMAGE%:%BUILD_NUMBER%"
+        //                         }
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+
+        stage('Build with Docker Compose') {
+            steps {
+                script {
+                    // Build all services defined in docker-compose.yml
+                    bat "docker-compose build"
+                    
+                    // Tag the built images with the build number
+                    bat """
+                        docker tag ${COMPOSE_PROJECT_NAME}_frontend ${DOCKER_REGISTRY}/${COMPOSE_PROJECT_NAME}-frontend:${BUILD_NUMBER}
+                        docker tag ${COMPOSE_PROJECT_NAME}_backend ${DOCKER_REGISTRY}/${COMPOSE_PROJECT_NAME}-backend:${BUILD_NUMBER}
+                    """
                 }
             }
         }
@@ -143,3 +157,4 @@ pipeline {
         }
     }
 }
+
