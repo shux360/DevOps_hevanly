@@ -45,17 +45,34 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(
                     credentialsId: 'dockerhub-cred',
-                    passwordVariable: 'DOCKER_PASSWORD',
-                    usernameVariable: 'DOCKER_USERNAME'
+                    passwordVariable: 'DOCKER_TOKEN',
+                    usernameVariable: 'DOCKER_USERNAME',
+
                 )]) {
                     // Method 1: Standard login
-                    bat """
+                    def loginStatus = bat(
+                    script: """
                         docker logout
-                        echo %DOCKER_PASSWORD% | docker login -u %DOCKER_USERNAME% --password-stdin
+                        docker login -u %DOCKER_USERNAME% -p %DOCKER_TOKEN%
+                    """,
+                    returnStatus: true
+                )
+                
+                // Method 2: Fallback if first fails
+                if (loginStatus != 0) {
+                    echo "Standard login failed, trying alternative method"
+                    bat """
+                        set DOCKER_CONFIG=%WORKSPACE%\\docker-config
+                        mkdir %DOCKER_CONFIG%
+                        echo ^{
+                          \"auths\": {
+                            \"https://index.docker.io/v1/\": {
+                              \"auth\": \"${Base64.getEncoder().encodeToString("${DOCKER_USERNAME}:${DOCKER_TOKEN}".getBytes())}\"
+                            }
+                          }
+                        } > %DOCKER_CONFIG%\\config.json
+                        set DOCKER_CONFIG=%DOCKER_CONFIG%
                     """
-                    
-                    // Verify login worked
-                    bat 'docker pull hello-world || echo "Login verification failed"'
                 }
             }
         }
