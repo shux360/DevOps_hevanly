@@ -8,7 +8,6 @@ pipeline {
         DOCKERHUB_USERNAME = 'shux360'
         COMPOSE_PROJECT_NAME = 'devops_hevanly'
         // Credential ID (must match Jenkins credentials)
-        DOCKER_CREDENTIALS = credentials('dockerhub-cred')
         
         // Image names (defined here for clarity)
         FRONTEND_IMAGE = "${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-frontend"
@@ -45,14 +44,14 @@ pipeline {
         stage('Login to Docker Hub') {
             steps {
                 withCredentials([usernamePassword(
-                    credentialsId: env.DOCKER_CREDENTIALS,
+                    credentialsId: 'dockerhub-cred',
                     passwordVariable: 'DOCKER_PASSWORD',
                     usernameVariable: 'DOCKER_USERNAME'
                 )]) {
                     // Method 1: Standard login
                     bat """
                         docker logout
-                        docker login -u %DOCKER_USERNAME% -p %DOCKER_PASSWORD%
+                        echo %DOCKER_PASSWORD% | docker login -u %DOCKER_USERNAME% --password-stdin
                     """
                     
                     // Verify login worked
