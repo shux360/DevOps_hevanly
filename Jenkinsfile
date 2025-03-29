@@ -74,6 +74,7 @@ pipeline {
                         set DOCKER_CONFIG=%DOCKER_CONFIG%
                     """
                 }
+                }
             }
         }
 
