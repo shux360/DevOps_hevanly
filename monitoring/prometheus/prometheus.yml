@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'backend'
+    static_configs:
+      - targets: ['backend:3001']  # Use your backend's service name + port
+
+  - job_name: 'frontend'
+    static_configs:
+      - targets: ['frontend:5173']  # Use your frontend's service name + port
