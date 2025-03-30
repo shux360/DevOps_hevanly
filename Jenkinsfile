@@ -29,9 +29,9 @@ pipeline {
             steps {
                 checkout scm
                 bat '''
-                    mkdir monitoring || true
-                    mkdir monitoring/prometheus || true
-                    mkdir monitoring/grafana || true
+                    if not exist monitoring mkdir monitoring
+                    if not exist monitoring\\prometheus mkdir monitoring\\prometheus
+                    if not exist monitoring\\grafana mkdir monitoring\\grafana
                 '''
             }
         }
