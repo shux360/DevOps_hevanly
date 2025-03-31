@@ -8,12 +8,10 @@ pipeline {
         DOCKERHUB_USERNAME = 'shux360'
         COMPOSE_PROJECT_NAME = 'devops_hevanly'
         // Credential ID (must match Jenkins credentials)
+        
         // Image names (defined here for clarity)
         FRONTEND_IMAGE = "${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-frontend"
         BACKEND_IMAGE = "${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-backend"
-        // Monitoring variables
-        PROMETHEUS_PORT = '9090'
-        GRAFANA_PORT = '3000'
     }
 
     stages {
@@ -28,51 +26,12 @@ pipeline {
         stage('SCM Checkout') {
             steps {
                 checkout scm
-                bat '''
-                    if not exist monitoring mkdir monitoring
-                    if not exist monitoring\\prometheus mkdir monitoring\\prometheus
-                    if not exist monitoring\\grafana mkdir monitoring\\grafana
-                '''
-            }
-        }
-        stage('Configure Monitoring') {
-            steps {
-                // Create Prometheus config
-                writeFile file: 'monitoring/prometheus/prometheus.yml', text: """
-                global:
-                  scrape_interval: 15s
-                
-                scrape_configs:
-                  - job_name: 'prometheus'
-                    static_configs:
-                      - targets: ['localhost:${PROMETHEUS_PORT}']
-                  - job_name: 'backend'
-                    static_configs:
-                      - targets: ['backend:3001']
-                  - job_name: 'frontend'
-                    static_configs:
-                      - targets: ['frontend:5173']
-                """
-                
-                // Create basic Grafana config
-                writeFile file: 'monitoring/grafana/grafana.ini', text: """
-                [server]
-                http_addr = 0.0.0.0
-                http_port = ${GRAFANA_PORT}
-                
-                [security]
-                admin_user = admin
-                admin_password = admin
-                
-                [database]
-                type = sqlite3
-                """
             }
         }
 
         stage('Build with Docker Compose') {
             steps {
-                bat 'docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml build'
+                bat 'docker-compose build'
                 
                 // Tag images with build number
                 bat """
@@ -108,52 +67,14 @@ pipeline {
             }
         }
 
-        stage('Deploy Application and Monitoring') {
+        stage('Deploy') {
             steps {
                 bat """
-                    docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml down
-                    docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+                    docker-compose down
+                    docker-compose pull
+                    docker-compose up -d
                 """
             }
-        }
-        stage('Verify Monitoring') {
-            steps {
-                script {
-                    sleep(time: 20, unit: 'SECONDS')
-                    
-                    // Windows-compatible curl commands
-                    def prometheusStatus = bat(
-                        script: 'curl -s -o nul -w "%%{http_code}" http://localhost:9090',
-                        returnStdout: true
-                    ).trim()
-                    
-                    def grafanaStatus = bat(
-                        script: 'curl -s -o nul -w "%%{http_code}" http://localhost:3000', 
-                        returnStdout: true
-                    ).trim()
-                    
-                    echo "Prometheus status: ${prometheusStatus}"
-                    echo "Grafana status: ${grafanaStatus}"
-                    
-                    if (prometheusStatus != "200") {
-                        error("Prometheus failed to start (status: ${prometheusStatus})")
-                    }
-                    if (grafanaStatus != "200") {
-                        error("Grafana failed to start (status: ${grafanaStatus})")
-                    }
-                }
-            }
-        }
-    }
-    post {
-        always {
-            echo """
-            Deployment Summary:
-            - Application deployed
-            - Monitoring available at:
-              • Prometheus: http://localhost:${PROMETHEUS_PORT}
-              • Grafana: http://localhost:${GRAFANA_PORT} (admin/admin)
-            """
         }
     }
 }
