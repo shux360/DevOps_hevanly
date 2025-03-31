@@ -87,9 +87,11 @@ pipeline {
                     steps {
                         script {
                             withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                                // Windows-specific permission fix
                                 bat """
-                                chmod 600 %PRIVATE_KEY_PATH%
-                                ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "echo 'Logged into EC2 successfully!'"
+                                    icacls "%PRIVATE_KEY_PATH%" /inheritance:r
+                                    icacls "%PRIVATE_KEY_PATH%" /grant:r "%USERNAME%":"(R)"
+                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "echo 'Logged into EC2 successfully!'"
                                 """
                             }
                         }
