@@ -2,14 +2,9 @@ pipeline {
     agent any
     
     environment {
-        // Use just 'docker.io' (without username)
         DOCKER_REGISTRY = 'docker.io'
-        // Your Docker Hub username
         DOCKERHUB_USERNAME = 'shux360'
         COMPOSE_PROJECT_NAME = 'devops_hevanly'
-        // Credential ID (must match Jenkins credentials)
-        
-        // Image names (defined here for clarity)
         FRONTEND_IMAGE = "${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-frontend"
         BACKEND_IMAGE = "${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-backend"
         EC2_IP = '13.218.71.125'
@@ -34,8 +29,6 @@ pipeline {
         stage('Build with Docker Compose') {
             steps {
                 bat 'docker-compose build'
-                
-                // Tag images with build number
                 bat """
                     docker tag ${COMPOSE_PROJECT_NAME}-frontend ${FRONTEND_IMAGE}:${BUILD_NUMBER}
                     docker tag ${COMPOSE_PROJECT_NAME}-backend ${BACKEND_IMAGE}:${BUILD_NUMBER}
@@ -48,10 +41,8 @@ pipeline {
                 withCredentials([usernamePassword(
                     credentialsId: 'dockerhub-cred',
                     passwordVariable: 'DOCKER_TOKEN',
-                    usernameVariable: 'DOCKER_USERNAME',
-
+                    usernameVariable: 'DOCKER_USERNAME'
                 )]) {
-                    // Method 1: Standard login
                     bat """
                         docker logout
                         docker login -u %DOCKER_USERNAME% -p %DOCKER_TOKEN%
@@ -69,109 +60,114 @@ pipeline {
             }
         }
 
-//         stage('Deploy') {
-//             steps {
-//                 bat """
-//                     docker-compose down
-//                     docker-compose pull
-//                     docker-compose up -d
-//                 """
-//             }
-//         }
-//     }
-// }
- // EC2 Deployment Stages
-        stage('EC2 Connect') {
-            steps {
-                script {
-                    withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
-                        bat """
-                            @echo off
-                            :: Disable strict key permissions checking
-                            echo StrictModes no > "%USERPROFILE%\\.ssh\\config"
-                            :: Connect with verbose output
-                            ssh -vvv -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" ${EC2_USER}@${EC2_IP} "echo Connected"
-                        """
+        // EC2 Deployment Stages
+        stage('EC2 Deployment') {
+            stages {
+                stage('Connect to EC2') {
+                    steps {
+                        script {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                                powershell """
+                                    # Fix key permissions
+                                    \$keyPath = "${env:PRIVATE_KEY_PATH}"
+                                    \$acl = Get-Acl \$keyPath
+                                    \$acl.SetAccessRuleProtection(\$true, \$false)
+                                    \$rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                                        "${env:USERDOMAIN}\\${env:USERNAME}", "Read", "Allow"
+                                    )
+                                    \$acl.AddAccessRule(\$rule)
+                                    Set-Acl \$keyPath \$acl
+                                    
+                                    # Test connection
+                                    ssh -o StrictHostKeyChecking=no -i "\$keyPath" ${env:EC2_USER}@${env:EC2_IP} "echo 'EC2 connection successful'"
+                                """
+                            }
+                        }
                     }
                 }
-            }
-        }
-        
-        stage('Configure Docker Environment') {
-            steps {
-                script {
-                    withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
-                        bat """
-                        ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
-                        sudo usermod -aG docker %EC2_USER%
-                        sudo service docker restart
-                        docker ps
-                        "
-                        """
+                
+                stage('Configure Docker Environment') {
+                    steps {
+                        script {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                                bat """
+                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
+                                    sudo yum install -y docker || true
+                                    sudo usermod -aG docker %EC2_USER%
+                                    sudo systemctl enable docker
+                                    sudo systemctl restart docker
+                                    sudo chmod 666 /var/run/docker.sock
+                                    docker --version
+                                    "
+                                """
+                            }
+                        }
                     }
                 }
-            }
-        }
-        
-        stage('Clean Previous Deployments') {
-            steps {
-                script {
-                    withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
-                        bat """
-                        ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
-                        docker stop ${COMPOSE_PROJECT_NAME}-frontend || true
-                        docker stop ${COMPOSE_PROJECT_NAME}-backend || true
-                        docker container prune -f
-                        docker image prune -a -f
-                        "
-                        """
+                
+                stage('Clean Previous Deployments') {
+                    steps {
+                        script {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                                bat """
+                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
+                                    docker stop ${COMPOSE_PROJECT_NAME}-frontend || true
+                                    docker stop ${COMPOSE_PROJECT_NAME}-backend || true
+                                    docker container prune -f
+                                    docker image prune -a -f
+                                    "
+                                """
+                            }
+                        }
                     }
                 }
-            }
-        }
-        
-        stage('Pull New Images') {
-            steps {
-                script {
-                    withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
-                        bat """
-                        ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
-                        docker pull ${FRONTEND_IMAGE}:${BUILD_NUMBER}
-                        docker pull ${BACKEND_IMAGE}:${BUILD_NUMBER}
-                        "
-                        """
+                
+                stage('Pull New Images') {
+                    steps {
+                        script {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                                bat """
+                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
+                                    docker pull ${FRONTEND_IMAGE}:${BUILD_NUMBER}
+                                    docker pull ${BACKEND_IMAGE}:${BUILD_NUMBER}
+                                    "
+                                """
+                            }
+                        }
                     }
                 }
-            }
-        }
-        
-        stage('Deploy Containers') {
-            steps {
-                script {
-                    withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
-                        // Adjust ports and container configuration as needed
-                        bat """
-                        ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
-                        docker run -d --name ${COMPOSE_PROJECT_NAME}-frontend -p 5173:5173 ${FRONTEND_IMAGE}:${BUILD_NUMBER}
-                        docker run -d --name ${COMPOSE_PROJECT_NAME}-backend -p 3001:3001 ${BACKEND_IMAGE}:${BUILD_NUMBER}
-                        "
-                        """
+                
+                stage('Deploy Containers') {
+                    steps {
+                        script {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                                bat """
+                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
+                                    docker run -d --name ${COMPOSE_PROJECT_NAME}-frontend -p 5173:5173 ${FRONTEND_IMAGE}:${BUILD_NUMBER}
+                                    docker run -d --name ${COMPOSE_PROJECT_NAME}-backend -p 3001:3001 ${BACKEND_IMAGE}:${BUILD_NUMBER}
+                                    "
+                                """
+                            }
+                        }
                     }
                 }
-            }
-        }
-        
-        stage('Verify Deployment') {
-            steps {
-                script {
-                    withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
-                        bat """
-                        ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
-                        docker ps
-                        docker logs ${COMPOSE_PROJECT_NAME}-frontend --tail 50
-                        docker logs ${COMPOSE_PROJECT_NAME}-backend --tail 50
-                        "
-                        """
+                
+                stage('Verify Deployment') {
+                    steps {
+                        script {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                                bat """
+                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
+                                    echo 'Running containers:'
+                                    docker ps
+                                    echo '\nFrontend logs:'
+                                    docker logs ${COMPOSE_PROJECT_NAME}-frontend --tail 50
+                                    echo '\nBackend logs:'
+                                    docker logs ${COMPOSE_PROJECT_NAME}-backend --tail 50
+                                    "
+                                """
+                            }
+                        }
                     }
                 }
             }
