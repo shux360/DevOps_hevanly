@@ -87,10 +87,16 @@ pipeline {
                     steps {
                         script {
                             withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
-                                // Windows-specific permission fix
                                 bat """
+                                    # Remove inherited permissions
                                     icacls "%PRIVATE_KEY_PATH%" /inheritance:r
-                                    icacls "%PRIVATE_KEY_PATH%" /grant:r "%USERNAME%":"(R)"
+                                    # Grant full control to current user only
+                                    icacls "%PRIVATE_KEY_PATH%" /grant:r "%USERNAME%":F
+                                    # Remove all other users
+                                    icacls "%PRIVATE_KEY_PATH%" /remove:g "Authenticated Users" "BUILTIN\\Users" "Everyone"
+                                    # Verify permissions
+                                    icacls "%PRIVATE_KEY_PATH%"
+                                    # SSH with the key
                                     ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "echo 'Logged into EC2 successfully!'"
                                 """
                             }
