@@ -48,10 +48,10 @@ pipeline {
                       - targets: ['localhost:${PROMETHEUS_PORT}']
                   - job_name: 'backend'
                     static_configs:
-                      - targets: ['backend:3001']
+                      - targets: ['localhost:3001']
                   - job_name: 'frontend'
                     static_configs:
-                      - targets: ['frontend:5173']
+                      - targets: ['localhost:5173']
                 """
                 
                 // Create basic Grafana config
@@ -116,30 +116,59 @@ pipeline {
                 """
             }
         }
+        
         stage('Verify Monitoring') {
             steps {
                 script {
-                    sleep(time: 20, unit: 'SECONDS')
+                    // Wait longer for containers to initialize
+                    sleep(time: 30, unit: 'SECONDS')
                     
-                    // Windows-compatible curl commands
-                    def prometheusStatus = bat(
-                        script: 'curl -s -o nul -w "%%{http_code}" http://localhost:9090',
-                        returnStdout: true
-                    ).trim()
+                    // Get container status first
+                    bat 'docker ps -a'
+                    bat 'docker logs ${COMPOSE_PROJECT_NAME}-prometheus-1'
                     
-                    def grafanaStatus = bat(
-                        script: 'curl -s -o nul -w "%%{http_code}" http://localhost:3000', 
-                        returnStdout: true
-                    ).trim()
+                    // Improved health check with retries
+                    def prometheusReady = false
+                    def grafanaReady = false
+                    int retries = 5
+                    int delay = 10
                     
-                    echo "Prometheus status: ${prometheusStatus}"
-                    echo "Grafana status: ${grafanaStatus}"
-                    
-                    if (prometheusStatus != "200") {
-                        error("Prometheus failed to start (status: ${prometheusStatus})")
+                    for (int i = 0; i < retries; i++) {
+                        try {
+                            if (!prometheusReady) {
+                                def prometheusStatus = bat(
+                                    script: 'curl -s -o nul -w "%%{http_code}" http://localhost:9090/api/v1/targets',
+                                    returnStdout: true
+                                ).trim()
+                                if (prometheusStatus == "200") {
+                                    prometheusReady = true
+                                    echo "Prometheus is ready (attempt ${i + 1})"
+                                }
+                            }
+                            
+                            if (!grafanaReady) {
+                                def grafanaStatus = bat(
+                                    script: 'curl -s -o nul -w "%%{http_code}" http://localhost:3000/api/health',
+                                    returnStdout: true
+                                ).trim()
+                                if (grafanaStatus == "200") {
+                                    grafanaReady = true
+                                    echo "Grafana is ready (attempt ${i + 1})"
+                                }
+                            }
+                            
+                            if (prometheusReady && grafanaReady) break
+                            
+                            sleep(time: delay, unit: 'SECONDS')
+                        } catch (Exception e) {
+                            echo "Attempt ${i + 1} failed: ${e.getMessage()}"
+                            sleep(time: delay, unit: 'SECONDS')
+                        }
                     }
-                    if (grafanaStatus != "200") {
-                        error("Grafana failed to start (status: ${grafanaStatus})")
+                    
+                    if (!prometheusReady || !grafanaReady) {
+                        bat 'docker-compose -f docker-compose.monitoring.yml logs'
+                        error("Monitoring services failed to start. Prometheus ready: ${prometheusReady}, Grafana ready: ${grafanaReady}")
                     }
                 }
             }
