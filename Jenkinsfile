@@ -89,29 +89,38 @@ pipeline {
                     steps {
                         script {
                             withCredentials([sshUserPrivateKey(
-                                credentialsId: 'wsl-ec2', 
-                                keyFileVariable: 'PRIVATE_KEY_PATH',
-                                usernameVariable: 'SSH_USER'
+                                credentialsId: 'wsl-ec2',
+                                keyFileVariable: 'PRIVATE_KEY_PATH'
                             )]) {
-                                // Simplified and more reliable approach
                                 bat """
                                     @echo off
                                     setlocal
                                     
-                                    :: 1. Use a more reliable SSH command that doesn't require strict permissions
-                                    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'"
+                                    :: 1. First try native SSH with minimal requirements
+                                    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "echo 'EC2 connection successful'" && (
+                                        echo Successfully connected using native SSH
+                                        exit /b 0
+                                    )
                                     
-                                    :: 2. Alternative approach if above fails (no permission changes needed)
-                                    if errorlevel 1 (
-                                        echo Trying alternative connection method...
-                                        :: Use plink if available (from PuTTY)
-                                        if exist "C:\\Program Files\\PuTTY\\plink.exe" (
-                                            "C:\\Program Files\\PuTTY\\plink.exe" -batch -ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'"
-                                        ) else (
-                                            echo ERROR: Failed to connect to EC2 instance
-                                            exit /b 1
+                                    :: 2. If native SSH fails, try with PuTTY's plink
+                                    echo Native SSH failed, trying PuTTY's plink...
+                                    if exist "C:\\Program Files\\PuTTY\\plink.exe" (
+                                        "C:\\Program Files\\PuTTY\\plink.exe" -batch -ssh -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "echo 'EC2 connection successful'" && (
+                                            echo Successfully connected using plink
+                                            exit /b 0
                                         )
                                     )
+                                    
+                                    :: 3. Final fallback - accept host key temporarily
+                                    echo Trying with temporary host key acceptance...
+                                    echo y | "C:\\Program Files\\PuTTY\\plink.exe" -ssh -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "echo 'EC2 connection successful'" && (
+                                            echo Successfully connected with temporary host key acceptance
+                                            exit /b 0
+                                        )
+                                    
+                                    :: If all methods fail
+                                    echo ERROR: All connection attempts failed
+                                    exit /b 1
                                     
                                     endlocal
                                 """
