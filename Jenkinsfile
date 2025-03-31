@@ -73,7 +73,7 @@ pipeline {
                                     
                                     :: Fix permissions using icacls
                                     icacls "%PRIVATE_KEY_PATH%" /inheritance:r
-                                    icacls "%PRIVATE_KEY_PATH%" /grant:r "%USERNAME%":F
+                                    icacls "%PRIVATE_KEY_PATH%" /grant:r "%SSH_USER%":F
                                     icacls "%PRIVATE_KEY_PATH%" /remove:g "Everyone" "Authenticated Users" "BUILTIN\\Users"
                                     
                                     :: Test connection
