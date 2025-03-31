@@ -66,20 +66,21 @@ pipeline {
                 stage('Connect to EC2') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
-                                powershell """
-                                    # Fix key permissions
-                                    \$keyPath = "${env:PRIVATE_KEY_PATH}"
-                                    \$acl = Get-Acl \$keyPath
-                                    \$acl.SetAccessRuleProtection(\$true, \$false)
-                                    \$rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-                                        "${env:USERDOMAIN}\\${env:USERNAME}", "Read", "Allow"
-                                    )
-                                    \$acl.AddAccessRule(\$rule)
-                                    Set-Acl \$keyPath \$acl
+                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH', usernameVariable: 'SSH_USER')]) {
+                                // Using bat for Windows permission handling
+                                bat """
+                                    @echo off
+                                    setlocal
                                     
-                                    # Test connection
-                                    ssh -o StrictHostKeyChecking=no -i "\$keyPath" ${env:EC2_USER}@${env:EC2_IP} "echo 'EC2 connection successful'"
+                                    :: Fix permissions using icacls
+                                    icacls "%PRIVATE_KEY_PATH%" /inheritance:r
+                                    icacls "%PRIVATE_KEY_PATH%" /grant:r "%USERNAME%":F
+                                    icacls "%PRIVATE_KEY_PATH%" /remove:g "Everyone" "Authenticated Users" "BUILTIN\\Users"
+                                    
+                                    :: Test connection
+                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "echo 'EC2 connection successful'"
+                                    
+                                    endlocal
                                 """
                             }
                         }
@@ -92,6 +93,7 @@ pipeline {
                             withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
                                 bat """
                                     ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
+                                    sudo amazon-linux-extras install docker -y || true
                                     sudo yum install -y docker || true
                                     sudo usermod -aG docker %EC2_USER%
                                     sudo systemctl enable docker
