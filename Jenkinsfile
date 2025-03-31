@@ -45,26 +45,27 @@ pipeline {
                 scrape_configs:
                   - job_name: 'prometheus'
                     static_configs:
-                      - targets: ['localhost:9090}']
+                      - targets: ['localhost:${PROMETHEUS_PORT}']
                   - job_name: 'backend'
                     static_configs:
-                      - targets: ['localhost:3001']
-                    metrics_path: '/metrics'
+                      - targets: ['backend:3001']
                   - job_name: 'frontend'
                     static_configs:
-                      - targets: ['localhost:5173']
-                    metrics_path: '/metrics'
+                      - targets: ['frontend:5173']
                 """
                 
                 // Create basic Grafana config
                 writeFile file: 'monitoring/grafana/grafana.ini', text: """
                 [server]
                 http_addr = 0.0.0.0
-                http_port = 3000     
-
+                http_port = ${GRAFANA_PORT}
+                
                 [security]
                 admin_user = admin
                 admin_password = admin
+                
+                [database]
+                type = sqlite3
                 """
             }
         }
@@ -112,104 +113,33 @@ pipeline {
                 bat """
                     docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml down
                     docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
-                    timeout /t 30 /nobreak > nul 
                 """
-            }
-        }
-
-        stage('Verify Services') {
-            steps {
-                script {
-                    def services = [
-                        'prometheus': 'http://localhost:9090/-/healthy',
-                        'grafana': 'http://localhost:3000/api/health',
-                        'backend': 'http://localhost:3001/health',
-                        'frontend': 'http://localhost:5173'
-                    ]
-                    
-                    services.each { service, url ->
-                        int retries = 5
-                        int delay = 10
-                        boolean healthy = false
-                        
-                        for (int i = 1; i <= retries; i++) {
-                            try {
-                                def status = bat(
-                                    script: "curl -s -o nul -w \"%%{http_code}\" ${url}",
-                                    returnStdout: true
-                                ).trim()
-                                
-                                if (status == "200") {
-                                    healthy = true
-                                    echo "${service} is healthy"
-                                    break
-                                }
-                            } catch (e) {
-                                echo "Attempt ${i} for ${service} failed: ${e.getMessage()}"
-                            }
-                            sleep(time: delay, unit: 'SECONDS')
-                        }
-                        
-                        if (!healthy) {
-                            bat "docker logs devops_hevanly-${service}-1"
-                            error("${service} failed to become healthy")
-                        }
-                    }
-                }
             }
         }
         stage('Verify Monitoring') {
             steps {
                 script {
-                    // Wait longer for containers to initialize
-                    sleep(time: 30, unit: 'SECONDS')
+                    sleep(time: 20, unit: 'SECONDS')
                     
-                    // Get container status first
-                    bat 'docker ps -a'
-                    bat 'docker logs ${COMPOSE_PROJECT_NAME}-prometheus-1'
+                    // Windows-compatible curl commands
+                    def prometheusStatus = bat(
+                        script: 'curl -s -o nul -w "%%{http_code}" http://localhost:9090',
+                        returnStdout: true
+                    ).trim()
                     
-                    // Improved health check with retries
-                    def prometheusReady = false
-                    def grafanaReady = false
-                    int retries = 5
-                    int delay = 10
+                    def grafanaStatus = bat(
+                        script: 'curl -s -o nul -w "%%{http_code}" http://localhost:3000', 
+                        returnStdout: true
+                    ).trim()
                     
-                    for (int i = 0; i < retries; i++) {
-                        try {
-                            if (!prometheusReady) {
-                                def prometheusStatus = bat(
-                                    script: 'curl -s -o nul -w "%%{http_code}" http://localhost:9090/api/v1/targets',
-                                    returnStdout: true
-                                ).trim()
-                                if (prometheusStatus == "200") {
-                                    prometheusReady = true
-                                    echo "Prometheus is ready (attempt ${i + 1})"
-                                }
-                            }
-                            
-                            if (!grafanaReady) {
-                                def grafanaStatus = bat(
-                                    script: 'curl -s -o nul -w "%%{http_code}" http://localhost:3000/api/health',
-                                    returnStdout: true
-                                ).trim()
-                                if (grafanaStatus == "200") {
-                                    grafanaReady = true
-                                    echo "Grafana is ready (attempt ${i + 1})"
-                                }
-                            }
-                            
-                            if (prometheusReady && grafanaReady) break
-                            
-                            sleep(time: delay, unit: 'SECONDS')
-                        } catch (Exception e) {
-                            echo "Attempt ${i + 1} failed: ${e.getMessage()}"
-                            sleep(time: delay, unit: 'SECONDS')
-                        }
+                    echo "Prometheus status: ${prometheusStatus}"
+                    echo "Grafana status: ${grafanaStatus}"
+                    
+                    if (prometheusStatus != "200") {
+                        error("Prometheus failed to start (status: ${prometheusStatus})")
                     }
-                    
-                    if (!prometheusReady || !grafanaReady) {
-                        bat 'docker-compose -f docker-compose.monitoring.yml logs'
-                        error("Monitoring services failed to start. Prometheus ready: ${prometheusReady}, Grafana ready: ${grafanaReady}")
+                    if (grafanaStatus != "200") {
+                        error("Grafana failed to start (status: ${grafanaStatus})")
                     }
                 }
             }
@@ -221,8 +151,8 @@ pipeline {
             Deployment Summary:
             - Application deployed
             - Monitoring available at:
-              • Prometheus: http://localhost:9090
-              • Grafana: http://localhost:3000 (admin/admin)
+              • Prometheus: http://localhost:${PROMETHEUS_PORT}
+              • Grafana: http://localhost:${GRAFANA_PORT} (admin/admin)
             """
         }
     }

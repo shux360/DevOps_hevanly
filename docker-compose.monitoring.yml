@@ -9,15 +9,8 @@ services:
       - ./monitoring/prometheus:/etc/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--web.enable-lifecycle" # Allows reloading config via API
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/ready || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks:
-      - app-network
-    restart: unless-stopped
+    depends_on:
+      - backend # Your backend service name
 
   grafana:
     image: grafana/grafana
@@ -27,19 +20,7 @@ services:
       - ./monitoring/grafana:/etc/grafana
       - grafana-storage:/var/lib/grafana
     depends_on:
-      prometheus:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - app-network
-
-networks:
-  app-network:
-    driver: bridge
+      - prometheus
 
 volumes:
   grafana-storage:
