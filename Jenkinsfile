@@ -113,10 +113,51 @@ pipeline {
                 bat """
                     docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml down
                     docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+                    timeout /t 30 /nobreak > nul 
                 """
             }
         }
-        
+        stage('Verify Services') {
+            steps {
+                script {
+                    def services = [
+                        'prometheus': 'http://localhost:9090/-/healthy',
+                        'grafana': 'http://localhost:3000/api/health',
+                        'backend': 'http://localhost:3001/health',
+                        'frontend': 'http://localhost:5173'
+                    ]
+                    
+                    services.each { service, url ->
+                        int retries = 5
+                        int delay = 10
+                        boolean healthy = false
+                        
+                        for (int i = 1; i <= retries; i++) {
+                            try {
+                                def status = bat(
+                                    script: "curl -s -o nul -w \"%%{http_code}\" ${url}",
+                                    returnStdout: true
+                                ).trim()
+                                
+                                if (status == "200") {
+                                    healthy = true
+                                    echo "${service} is healthy"
+                                    break
+                                }
+                            } catch (e) {
+                                echo "Attempt ${i} for ${service} failed: ${e.getMessage()}"
+                            }
+                            sleep(time: delay, unit: 'SECONDS')
+                        }
+                        
+                        if (!healthy) {
+                            bat "docker logs devops_hevanly-${service}-1"
+                            error("${service} failed to become healthy")
+                        }
+                    }
+                }
+            }
+        }
         stage('Verify Monitoring') {
             steps {
                 script {
