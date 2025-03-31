@@ -8,10 +8,10 @@ services:
     volumes:
       - ./monitoring/prometheus:/etc/
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--web.enable-lifecycle'  # Allows reloading config via API
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-lifecycle" # Allows reloading config via API
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/ready || exit 1"]      interval: 10s
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/ready || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
