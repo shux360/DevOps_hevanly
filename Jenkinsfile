@@ -8,7 +8,6 @@ pipeline {
         FRONTEND_IMAGE = "${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-frontend"
         BACKEND_IMAGE = "${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-backend"
         EC2_IP = '13.218.71.125'
-        EC2_USER = 'ec2-user'
     }
 
     stages {
@@ -66,7 +65,7 @@ pipeline {
                 stage('Connect to EC2') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH', usernameVariable: 'ec2-user')]) {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH', usernameVariable: 'SSH_USER')]) {
                                 // Using bat for Windows permission handling
                                 bat """
                                     @echo off
@@ -78,7 +77,7 @@ pipeline {
                                     icacls "%PRIVATE_KEY_PATH%" /remove:g "Everyone" "Authenticated Users" "BUILTIN\\Users"
                                     
                                     :: Test connection
-                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "echo 'EC2 connection successful'"
+                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'"
                                     
                                     endlocal
                                 """
