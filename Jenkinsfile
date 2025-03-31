@@ -45,27 +45,26 @@ pipeline {
                 scrape_configs:
                   - job_name: 'prometheus'
                     static_configs:
-                      - targets: ['localhost:${PROMETHEUS_PORT}']
+                      - targets: ['localhost:9090}']
                   - job_name: 'backend'
                     static_configs:
                       - targets: ['localhost:3001']
+                    metrics_path: '/metrics'
                   - job_name: 'frontend'
                     static_configs:
                       - targets: ['localhost:5173']
+                    metrics_path: '/metrics'
                 """
                 
                 // Create basic Grafana config
                 writeFile file: 'monitoring/grafana/grafana.ini', text: """
                 [server]
                 http_addr = 0.0.0.0
-                http_port = ${GRAFANA_PORT}
-                
+                http_port = 3000     
+
                 [security]
                 admin_user = admin
                 admin_password = admin
-                
-                [database]
-                type = sqlite3
                 """
             }
         }
@@ -117,6 +116,7 @@ pipeline {
                 """
             }
         }
+
         stage('Verify Services') {
             steps {
                 script {
@@ -221,8 +221,8 @@ pipeline {
             Deployment Summary:
             - Application deployed
             - Monitoring available at:
-              • Prometheus: http://localhost:${PROMETHEUS_PORT}
-              • Grafana: http://localhost:${GRAFANA_PORT} (admin/admin)
+              • Prometheus: http://localhost:9090
+              • Grafana: http://localhost:3000 (admin/admin)
             """
         }
     }

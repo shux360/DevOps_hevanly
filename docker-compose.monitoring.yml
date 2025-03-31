@@ -6,7 +6,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./monitoring/prometheus:/etc/
+      - ./monitoring/prometheus:/etc/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--web.enable-lifecycle" # Allows reloading config via API

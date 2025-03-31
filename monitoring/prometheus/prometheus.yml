@@ -9,10 +9,10 @@ scrape_configs:
 
   - job_name: 'backend'
     static_configs:
-      - targets: ['localhost:3001']
+      - targets: ['backend:3001']
     metrics_path: '/metrics'  # Explicitly set metrics path
 
   - job_name: 'frontend'
     static_configs:
-      - targets: ['localhost:5173']
+      - targets: ['frontend:5173']
     metrics_path: '/metrics'
