@@ -119,15 +119,28 @@ pipeline {
         stage('Verify Monitoring') {
             steps {
                 script {
-                    sleep(time: 20, unit: 'SECONDS') // Wait for services to start
+                    sleep(time: 20, unit: 'SECONDS')
                     
-                    // Verify Prometheus
-                    def prometheusStatus = bat(script: "curl -s -o /dev/null -w \"%%{http_code}\" http://localhost:${PROMETHEUS_PORT}", returnStdout: true).trim()
+                    // Windows-compatible curl commands
+                    def prometheusStatus = bat(
+                        script: 'curl -s -o nul -w "%%{http_code}" http://localhost:9090',
+                        returnStdout: true
+                    ).trim()
+                    
+                    def grafanaStatus = bat(
+                        script: 'curl -s -o nul -w "%%{http_code}" http://localhost:3000', 
+                        returnStdout: true
+                    ).trim()
+                    
                     echo "Prometheus status: ${prometheusStatus}"
-                    
-                    // Verify Grafana
-                    def grafanaStatus = bat(script: "curl -s -o /dev/null -w \"%%{http_code}\" http://localhost:${GRAFANA_PORT}", returnStdout: true).trim()
                     echo "Grafana status: ${grafanaStatus}"
+                    
+                    if (prometheusStatus != "200") {
+                        error("Prometheus failed to start (status: ${prometheusStatus})")
+                    }
+                    if (grafanaStatus != "200") {
+                        error("Grafana failed to start (status: ${grafanaStatus})")
+                    }
                 }
             }
         }
