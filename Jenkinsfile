@@ -62,22 +62,56 @@ pipeline {
         // EC2 Deployment Stages
         stage('EC2 Deployment') {
             stages {
+                // stage('Connect to EC2') {
+                //     steps {
+                //         script {
+                //             withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH', usernameVariable: 'SSH_USER')]) {
+                //                 // Using bat for Windows permission handling
+                //                 bat """
+                //                     @echo off
+                //                     setlocal
+                                    
+                //                     :: Fix permissions using icacls
+                //                     icacls "%PRIVATE_KEY_PATH%" /inheritance:r
+                //                     icacls "%PRIVATE_KEY_PATH%" /grant:r "%SSH_USER%":F
+                //                     icacls "%PRIVATE_KEY_PATH%" /remove:g "Everyone" "Authenticated Users" "BUILTIN\\Users"
+                                    
+                //                     :: Test connection
+                //                     ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'"
+                                    
+                //                     endlocal
+                //                 """
+                //             }
+                //         }
+                //     }
+                // }
                 stage('Connect to EC2') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH', usernameVariable: 'SSH_USER')]) {
-                                // Using bat for Windows permission handling
+                            withCredentials([sshUserPrivateKey(
+                                credentialsId: 'wsl-ec2', 
+                                keyFileVariable: 'PRIVATE_KEY_PATH',
+                                usernameVariable: 'SSH_USER'
+                            )]) {
+                                // Simplified and more reliable approach
                                 bat """
                                     @echo off
                                     setlocal
                                     
-                                    :: Fix permissions using icacls
-                                    icacls "%PRIVATE_KEY_PATH%" /inheritance:r
-                                    icacls "%PRIVATE_KEY_PATH%" /grant:r "%SSH_USER%":F
-                                    icacls "%PRIVATE_KEY_PATH%" /remove:g "Everyone" "Authenticated Users" "BUILTIN\\Users"
+                                    :: 1. Use a more reliable SSH command that doesn't require strict permissions
+                                    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'"
                                     
-                                    :: Test connection
-                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'"
+                                    :: 2. Alternative approach if above fails (no permission changes needed)
+                                    if errorlevel 1 (
+                                        echo Trying alternative connection method...
+                                        :: Use plink if available (from PuTTY)
+                                        if exist "C:\\Program Files\\PuTTY\\plink.exe" (
+                                            "C:\\Program Files\\PuTTY\\plink.exe" -batch -ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'"
+                                        ) else (
+                                            echo ERROR: Failed to connect to EC2 instance
+                                            exit /b 1
+                                        )
+                                    )
                                     
                                     endlocal
                                 """
@@ -85,6 +119,25 @@ pipeline {
                         }
                     }
                 }
+                
+                stage('Install Docker') {
+                    steps {
+                        script {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                                bat """
+                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
+                                    sudo yum update -y || true
+                                    sudo amazon-linux-extras install docker -y || true
+                                    sudo yum install -y docker || true
+                                    sudo usermod -aG docker %EC2_USER%
+                                    sudo systemctl enable docker
+                                    sudo systemctl restart docker
+                                    "
+                                """
+                            }
+                        }
+                    }
+}
                 
                 stage('Configure Docker Environment') {
                     steps {
