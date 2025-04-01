@@ -128,8 +128,8 @@ pipeline {
                     steps {
                         script {
                             withCredentials([sshUserPrivateKey(
-                                credentialsId: 'aws-cred',
-                                keyFileVariable: 'PRIVATE_KEY_PATH',
+                                credentialsId: 'ec2-cred', 
+                                keyFileVariable: 'PRIVATE_KEY',
                                 usernameVariable: 'SSH_USER'
                             )]) {
                                 bat """
@@ -137,7 +137,7 @@ pipeline {
                                     setlocal
                                     
                                     set TEMP_KEY=%WORKSPACE%\\temp_ec2_key.pem
-                                    copy "%PRIVATE_KEY_PATH%" "%TEMP_KEY%" > nul
+                                    copy "%PRIVATE_KEY%" "%TEMP_KEY%" > nul
                                     icacls "%TEMP_KEY%" /inheritance:r
                                     icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
                                     
@@ -163,8 +163,8 @@ pipeline {
                     steps {
                         script {
                             withCredentials([sshUserPrivateKey(
-                                credentialsId: 'aws-cred',
-                                keyFileVariable: 'PRIVATE_KEY_PATH',
+                                credentialsId: 'ec2-cred', 
+                                keyFileVariable: 'PRIVATE_KEY',
                                 usernameVariable: 'SSH_USER'
                             )]) {
                                 bat """
@@ -172,7 +172,7 @@ pipeline {
                                     setlocal
                                     
                                     set TEMP_KEY=%WORKSPACE%\\temp_ec2_key.pem
-                                    copy "%PRIVATE_KEY_PATH%" "%TEMP_KEY%" > nul
+                                    copy "%PRIVATE_KEY%" "%TEMP_KEY%" > nul
                                     icacls "%TEMP_KEY%" /inheritance:r
                                     icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
                                     
