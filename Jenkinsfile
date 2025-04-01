@@ -77,66 +77,10 @@ pipeline {
                 stage('Connect to EC2') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(
-                                credentialsId: 'aws-cred', 
-                                keyFileVariable: 'PRIVATE_KEY_PATH',
-                                usernameVariable: 'SSH_USER'
-                            )]) {
-                                bat """
-                                    @echo off
-                                    setlocal
-                                    set DEBUG_LOG=%WORKSPACE%\\ssh_connection.log
-                                    
-                                    :: 1. Verify private key exists
-                                    if not exist "%PRIVATE_KEY_PATH%" (
-                                        echo ERROR: Private key not found at %PRIVATE_KEY_PATH%
-                                        exit /b 1
-                                    )
-                                    
-                                    :: 2. Fix key permissions (Windows specific)
-                                    echo Fixing key permissions... >> %DEBUG_LOG%
-                                    icacls "%PRIVATE_KEY_PATH%" /inheritance:r >> %DEBUG_LOG% 2>&1
-                                    icacls "%PRIVATE_KEY_PATH%" /grant:r "%USERNAME%":F >> %DEBUG_LOG% 2>&1
-                                    
-                                    :: 3. First try with native SSH (proper case for ConfigFile)
-                                    echo Trying native SSH connection... >> %DEBUG_LOG%
-                                    ssh -v -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o ConfigFile=/dev/null -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'Native SSH success'" >> %DEBUG_LOG% 2>&1
-                                    
-                                    if not errorlevel 1 (
-                                        echo SUCCESS: Connected using native SSH
-                                        exit /b 0
-                                    )
-                                    
-                                    :: 4. If native SSH failed, try with Plink and accept host key
-                                    echo Native SSH failed, trying Plink... >> %DEBUG_LOG%
-                                    if exist "C:\\Program Files\\PuTTY\\plink.exe" (
-                                        echo Accepting host key for Plink... >> %DEBUG_LOG%
-                                        echo y | "C:\\Program Files\\PuTTY\\plink.exe" -ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% exit >> %DEBUG_LOG% 2>&1
-                                        
-                                        echo Testing Plink connection... >> %DEBUG_LOG%
-                                        "C:\\Program Files\\PuTTY\\plink.exe" -batch -ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'Plink success'" >> %DEBUG_LOG% 2>&1
-                                        
-                                        if not errorlevel 1 (
-                                            echo SUCCESS: Connected using Plink
-                                            exit /b 0
-                                        )
-                                    )
-                                    
-                                    :: 5. Final fallback - add host key to known hosts manually
-                                    echo Trying manual host key acceptance... >> %DEBUG_LOG%
-                                    if not exist "%USERPROFILE%\\.ssh" mkdir "%USERPROFILE%\\.ssh" >> %DEBUG_LOG% 2>&1
-                                    echo [%EC2_IP%]:22 ssh-ed25519 SHA256:saG9PJi0rIn3RwJMHcnxNqKdWI3ZfXZjIoGK+WbLWA0 >> "%USERPROFILE%\\.ssh\\known_hosts"
-                                    
-                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'Manual host key success'" >> %DEBUG_LOG% 2>&1
-                                    
-                                    if errorlevel 1 (
-                                        echo ERROR: All connection attempts failed
-                                        type %DEBUG_LOG%
-                                        exit /b 1
-                                    )
-                                    
-                                    echo SUCCESS: Connected after manual host key setup
-                                    endlocal
+                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                                sh """
+                                chmod 600 ${PRIVATE_KEY_PATH} # Ensure the private key is secured
+                                ssh -o StrictHostKeyChecking=no -i "${PRIVATE_KEY_PATH}" ec2-user@13.218.71.125 "echo 'Logged into EC2 successfully!'"
                                 """
                             }
                         }
