@@ -60,14 +60,14 @@ pipeline {
                         script {
                             withCredentials([[
                                 $class: 'AmazonWebServicesCredentialsBinding',
-                                credentialsId: 'wsl-ec2',
+                                credentialsId: 'wsl-ec2', // Use your AWS credentials ID
                                 accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                                 secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                             ]]) {
                                 bat """
                                     aws configure set aws_access_key_id %AWS_ACCESS_KEY_ID%
                                     aws configure set aws_secret_access_key %AWS_SECRET_ACCESS_KEY%
-                                    aws configure set region %AWS_REGION%
+                                    aws configure set region us-east-1
                                 """
                             }
                         }
@@ -77,31 +77,13 @@ pipeline {
                 stage('Connect to EC2') {
                     steps {
                         script {
-                            withCredentials([[
-                                $class: 'AmazonWebServicesCredentialsBinding',
-                                credentialsId: 'aws-cred', 
-                                keyFileVariable: 'PRIVATE_KEY_PATH',
-                                usernameVariable: 'SSH_USER'
-                            ]]) {
+                            withCredentials([sshUserPrivateKey(
+                                credentialsId: 'aws-cred', // Use your SSH credentials ID
+                                keyFileVariable: 'SSH_KEY_FILE',
+                                usernameVariable: 'SSH_USERNAME'
+                            )]) {
                                 bat """
-                                    # Debug: Show key file location and permissions
-                                    echo "Private key path: ${PRIVATE_KEY_PATH}"
-                                    ls -l ${PRIVATE_KEY_PATH}
-                                    
-                                    # Set strict permissions for the key
-                                    chmod 600 ${PRIVATE_KEY_PATH}
-                                    
-                                    # Test basic connectivity
-                                    echo "Testing connection to port 22..."
-                                    nc -zv 13.218.71.125 22
-                                    
-                                    # Verbose SSH connection test
-                                    echo "Attempting SSH connection with verbose output..."
-                                    ssh -vvv -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                                        -i "${PRIVATE_KEY_PATH}" ec2-user@13.218.71.125 \
-                                        "echo 'Logged into EC2 successfully!'; \
-                                        echo 'EC2 OS Info:'; cat /etc/os-release; \
-                                        echo 'Docker status:'; sudo systemctl status docker || echo 'Docker not installed'"
+                                    plink -ssh -i "%SSH_KEY_FILE%" %SSH_USERNAME%@13.218.71.125 "echo Connected successfully"
                                 """
                             }
                         }
