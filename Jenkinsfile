@@ -99,16 +99,41 @@ pipeline {
                                 bat """
                                     @echo off
                                     setlocal
+                                    set DEBUG_LOG=%WORKSPACE%\\ssh_debug.log
                                     
-                                    :: Bypass SSH config issues
-                                    set SSH_COMMAND=ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP%
+                                    :: 1. First verify the private key exists
+                                    if not exist "%PRIVATE_KEY_PATH%" (
+                                        echo ERROR: Private key not found at %PRIVATE_KEY_PATH%
+                                        exit /b 1
+                                    )
                                     
-                                    :: Test connection
-                                    %SSH_COMMAND% "echo 'EC2 connection successful'"
+                                    :: 2. Display basic debug info
+                                    echo DEBUG: Connecting to %SSH_USER%@%EC2_IP% >> %DEBUG_LOG%
+                                    echo DEBUG: Using key file: %PRIVATE_KEY_PATH% >> %DEBUG_LOG%
+                                    
+                                    :: 3. Test basic SSH connection with full debug output
+                                    ssh -vvv -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o ConfigFile=NUL -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'" >> %DEBUG_LOG% 2>&1
                                     
                                     if errorlevel 1 (
-                                        echo ERROR: Connection failed
-                                        exit /b 1
+                                        echo ERROR: SSH connection failed. Checking debug information...
+                                        type %DEBUG_LOG%
+                                        
+                                        :: 4. Alternative connection method using Plink (PuTTY)
+                                        echo Trying alternative connection with Plink... >> %DEBUG_LOG%
+                                        if exist "C:\\Program Files\\PuTTY\\plink.exe" (
+                                            "C:\\Program Files\\PuTTY\\plink.exe" -batch -ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'Plink connection successful'" >> %DEBUG_LOG% 2>&1
+                                            if errorlevel 1 (
+                                                echo ERROR: Plink also failed
+                                                type %DEBUG_LOG%
+                                                exit /b 1
+                                            )
+                                            echo SUCCESS: Connected using Plink
+                                        ) else (
+                                            echo ERROR: Plink not available at C:\\Program Files\\PuTTY\\plink.exe
+                                            exit /b 1
+                                        )
+                                    ) else (
+                                        echo SUCCESS: Connected using native SSH
                                     )
                                     
                                     endlocal
