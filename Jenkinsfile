@@ -10,6 +10,7 @@ pipeline {
         EC2_IP = '13.218.71.125'
         EC2_USER = 'ec2-user'
         AWS_REGION = 'us-east-1'
+        SSH_OPTS = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR'
     }
 
     stages {
@@ -38,7 +39,7 @@ pipeline {
                 )]) {
                     bat """
                         docker logout
-                        docker login -u %DOCKER_USERNAME% -p %DOCKER_TOKEN%
+                        echo %DOCKER_TOKEN% | docker login -u %DOCKER_USERNAME% --password-stdin
                     """
                 }
             }
@@ -60,7 +61,7 @@ pipeline {
                         script {
                             withCredentials([[
                                 $class: 'AmazonWebServicesCredentialsBinding',
-                                credentialsId: 'aws-cred', // Use your AWS credentials ID
+                                credentialsId: 'aws-cred',
                                 accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                                 secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                             ]]) {
@@ -74,22 +75,27 @@ pipeline {
                     }
                 }
 
-                // stage('Connect to EC2') {
-                //     steps {
-                //         script {
-                //             withCredentials([sshUserPrivateKey(
-                //                 credentialsId: 'ec2-cred', 
-                //                 keyFileVariable: 'SSH_KEY',
-                //                 usernameVariable: 'SSH_USER'
-                //             )]) {
-                //                 bat """
-                //                     ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SSH_USER@13.218.71.125" "echo Connected successfully"
-                //                 """
-                //             }
-                //         }
-                //     }
-                // }
-                stage('Access EC2 Instance') {
+                stage('Prepare EC2 Connection') {
+                    steps {
+                        script {
+                            withCredentials([sshUserPrivateKey(
+                                credentialsId: 'ec2-cred', 
+                                keyFileVariable: 'PRIVATE_KEY',
+                                usernameVariable: 'SSH_USER'
+                            )]) {
+                                // Write the private key to a file
+                                writeFile file: "${WORKSPACE}/ec2-key.pem", text: PRIVATE_KEY
+                                // Set proper permissions (simulated on Windows)
+                                bat """
+                                    icacls "${WORKSPACE}\\ec2-key.pem" /inheritance:r
+                                    icacls "${WORKSPACE}\\ec2-key.pem" /grant:r "%USERNAME%":F
+                                """
+                            }
+                        }
+                    }
+                }
+
+                stage('Install Docker on EC2') {
                     steps {
                         script {
                             withCredentials([sshUserPrivateKey(
@@ -98,119 +104,22 @@ pipeline {
                                 usernameVariable: 'SSH_USER'
                             )]) {
                                 bat """
-                                    @echo off
-                                    echo %PRIVATE_KEY% > "%TEMP%\\ec2-key.pem"
-                                    
-                                    :: Fix permissions (using SYSTEM account)
-                                    icacls "%TEMP%\\ec2-key.pem" /inheritance:r
-                                    icacls "%TEMP%\\ec2-key.pem" /grant:r "SYSTEM:(R)"
-                                    icacls "%TEMP%\\ec2-key.pem" /grant:r "%USERNAME%:(R)"
-                                    
-                                    :: Use full path to ssh.exe (Git for Windows version)
-                                    where ssh > nul 2>&1
-                                    if errorlevel 1 (
-                                        echo SSH not found in PATH
-                                        exit /b 1
-                                    )
-                                    
-                                    :: Connect with verbose output for debugging
-                                    ssh -vvv -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i "%TEMP%\\ec2-key.pem" %SSH_USER%@13.218.71.125 "echo Connected successfully && whoami"
-                                    
-                                    :: Clean up
-                                    del "%TEMP%\\ec2-key.pem"
+                                    plink -batch -ssh -i "${WORKSPACE}\\ec2-key.pem" ${SSH_USER}@${EC2_IP} ${SSH_OPTS} <<EOF
+                                    sudo yum update -y
+                                    sudo amazon-linux-extras install docker -y
+                                    sudo yum install -y docker
+                                    sudo usermod -aG docker ${SSH_USER}
+                                    sudo systemctl enable docker
+                                    sudo systemctl start docker
+                                    sudo chmod 666 /var/run/docker.sock
+                                    docker --version
+                                    EOF
                                 """
                             }
                         }
                     }
                 }
 
-                stage('Install Docker') {
-                    steps {
-                        script {
-                            withCredentials([sshUserPrivateKey(
-                                credentialsId: 'ec2-cred', 
-                                keyFileVariable: 'PRIVATE_KEY',
-                                usernameVariable: 'SSH_USER'
-                            )]) {
-                                bat """
-                                    @echo off
-                                    setlocal
-                                    
-                                    set TEMP_KEY=%WORKSPACE%\\temp_ec2_key.pem
-                                    copy "%PRIVATE_KEY%" "%TEMP_KEY%" > nul
-                                    icacls "%TEMP_KEY%" /inheritance:r
-                                    icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
-                                    
-                                    plink -batch -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% ^
-                                        "sudo yum update -y && ^
-                                         sudo amazon-linux-extras install docker -y && ^
-                                         sudo yum install -y docker && ^
-                                         sudo usermod -aG docker %SSH_USER% && ^
-                                         sudo systemctl enable docker && ^
-                                         sudo systemctl start docker && ^
-                                         sudo chmod 666 /var/run/docker.sock && ^
-                                         docker --version"
-                                    
-                                    del "%TEMP_KEY%" > nul 2>&1
-                                    endlocal
-                                """
-                            }
-                        }
-                    }
-                }
-
-                // stage('Deploy Containers') {
-                //     steps {
-                //         script {
-                //             withCredentials([
-                //                 sshUserPrivateKey(
-                //                     credentialsId: 'ec2-cred', 
-                //                     keyFileVariable: 'PRIVATE_KEY',
-                //                     usernameVariable: 'SSH_USER'
-                //                 ),
-                //                 usernamePassword(
-                //                     credentialsId: 'dockerhub-cred',
-                //                     usernameVariable: 'DOCKERHUB_USERNAME',
-                //                     passwordVariable: 'DOCKER_TOKEN'
-                //                 ),
-                //                 string(
-                //                     credentialsId: 'MONGO_URL',
-                //                     variable: 'MONGO_URL_SECRET'
-                //                 ),
-                //                 string(
-                //                     credentialsId: 'JWT_SECRET',
-                //                     variable: 'JWT_SECRET_SECRET'
-                //                 )
-                //             ]) {
-                //                 bat """
-                //                     @echo off
-                //                     setlocal
-                                    
-                //                     set TEMP_KEY=%WORKSPACE%\\temp_ec2_key.pem
-                //                     copy "%PRIVATE_KEY%" "%TEMP_KEY%" > nul
-                //                     icacls "%TEMP_KEY%" /inheritance:r
-                //                     icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
-                                    
-                //                     plink -batch -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% ^
-                //                         "docker logout && ^
-                //                          docker login -u %DOCKERHUB_USERNAME% -p %DOCKER_TOKEN% && ^
-                //                          docker stop ${COMPOSE_PROJECT_NAME}-frontend || true && ^
-                //                          docker stop ${COMPOSE_PROJECT_NAME}-backend || true && ^
-                //                          docker rm ${COMPOSE_PROJECT_NAME}-frontend || true && ^
-                //                          docker rm ${COMPOSE_PROJECT_NAME}-backend || true && ^
-                //                          docker pull ${FRONTEND_IMAGE}:${BUILD_NUMBER} && ^
-                //                          docker pull ${BACKEND_IMAGE}:${BUILD_NUMBER} && ^
-                //                          docker run -d --name ${COMPOSE_PROJECT_NAME}-frontend -p 5173:5173 ${FRONTEND_IMAGE}:${BUILD_NUMBER} && ^
-                //                          docker run -d --name ${COMPOSE_PROJECT_NAME}-backend -p 3001:3001 -e MONGO_URL=${MONGO_URL} -e JWT_SECRET=${JWT_SECRET} ${BACKEND_IMAGE}:${BUILD_NUMBER} && ^
-                //                          docker ps"
-                                    
-                //                     del "%TEMP_KEY%" > nul 2>&1
-                //                     endlocal
-                //                 """
-                //             }
-                //         }
-                //     }
-                // }
                 stage('Deploy Containers') {
                     steps {
                         script {
@@ -235,34 +144,25 @@ pipeline {
                                 )
                             ]) {
                                 bat """
-                                    @echo off
-                                    setlocal
-                                    
-                                    set TEMP_KEY=%WORKSPACE%\\temp_ec2_key.pem
-                                    echo %PRIVATE_KEY% > "%TEMP_KEY%"
-                                    icacls "%TEMP_KEY%" /inheritance:r
-                                    icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
-                                    
-                                    plink -batch -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% ^
-                                        "docker logout && ^
-                                        docker login -u %DOCKERHUB_USERNAME% -p %DOCKER_TOKEN% && ^
-                                        docker stop ${COMPOSE_PROJECT_NAME}-frontend || true && ^
-                                        docker stop ${COMPOSE_PROJECT_NAME}-backend || true && ^
-                                        docker rm ${COMPOSE_PROJECT_NAME}-frontend || true && ^
-                                        docker rm ${COMPOSE_PROJECT_NAME}-backend || true && ^
-                                        docker pull ${FRONTEND_IMAGE}:${BUILD_NUMBER} && ^
-                                        docker pull ${BACKEND_IMAGE}:${BUILD_NUMBER} && ^
-                                        docker run -d --name ${COMPOSE_PROJECT_NAME}-frontend -p 5173:5173 -e HOST=0.0.0.0 ${FRONTEND_IMAGE}:${BUILD_NUMBER} && ^
-                                        docker run -d --name ${COMPOSE_PROJECT_NAME}-backend -p 3001:3001 -e HOST=0.0.0.0 -e MONGO_URL='%MONGO_URL_SECRET%' -e JWT_SECRET='%JWT_SECRET_SECRET%' ${BACKEND_IMAGE}:${BUILD_NUMBER} && ^
-                                        docker ps"
-                                    
-                                    del "%TEMP_KEY%" > nul 2>&1
-                                    endlocal
+                                    plink -batch -ssh -i "${WORKSPACE}\\ec2-key.pem" ${SSH_USER}@${EC2_IP} ${SSH_OPTS} <<EOF
+                                    docker logout
+                                    echo ${DOCKER_TOKEN} | docker login -u ${DOCKERHUB_USERNAME} --password-stdin
+                                    docker stop ${COMPOSE_PROJECT_NAME}-frontend || true
+                                    docker stop ${COMPOSE_PROJECT_NAME}-backend || true
+                                    docker rm ${COMPOSE_PROJECT_NAME}-frontend || true
+                                    docker rm ${COMPOSE_PROJECT_NAME}-backend || true
+                                    docker pull ${FRONTEND_IMAGE}:${BUILD_NUMBER}
+                                    docker pull ${BACKEND_IMAGE}:${BUILD_NUMBER}
+                                    docker run -d --name ${COMPOSE_PROJECT_NAME}-frontend -p 80:5173 -e HOST=0.0.0.0 ${FRONTEND_IMAGE}:${BUILD_NUMBER}
+                                    docker run -d --name ${COMPOSE_PROJECT_NAME}-backend -p 3001:3001 -e HOST=0.0.0.0 -e MONGO_URL='${MONGO_URL_SECRET}' -e JWT_SECRET='${JWT_SECRET_SECRET}' ${BACKEND_IMAGE}:${BUILD_NUMBER}
+                                    docker ps
+                                    EOF
                                 """
                             }
                         }
                     }
                 }
+
                 stage('Verify Deployment') {
                     steps {
                         script {
@@ -272,24 +172,17 @@ pipeline {
                                 usernameVariable: 'SSH_USER'
                             )]) {
                                 bat """
-                                    @echo off
-                                    setlocal
-                                    
-                                    set TEMP_KEY=%WORKSPACE%\\temp_verify_key.pem
-                                    echo %PRIVATE_KEY% > "%TEMP_KEY%"
-                                    icacls "%TEMP_KEY%" /inheritance:r
-                                    icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
-                                    
-                                    plink -batch -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% ^
-                                        "echo 'Checking running containers...' && ^
-                                        docker ps && ^
-                                        echo 'Checking frontend logs...' && ^
-                                        docker logs %COMPOSE_PROJECT_NAME%-frontend --tail 50 && ^
-                                        echo 'Checking backend logs...' && ^
-                                        docker logs %COMPOSE_PROJECT_NAME%-backend --tail 50"
-                                    
-                                    del "%TEMP_KEY%" > nul 2>&1
-                                    endlocal
+                                    plink -batch -ssh -i "${WORKSPACE}\\ec2-key.pem" ${SSH_USER}@${EC2_IP} ${SSH_OPTS} <<EOF
+                                    echo "Checking running containers..."
+                                    docker ps
+                                    echo "Checking frontend logs..."
+                                    docker logs ${COMPOSE_PROJECT_NAME}-frontend --tail 50
+                                    echo "Checking backend logs..."
+                                    docker logs ${COMPOSE_PROJECT_NAME}-backend --tail 50
+                                    echo "Checking network connectivity..."
+                                    curl -I http://localhost:5173 || true
+                                    curl -I http://localhost:3001 || true
+                                    EOF
                                 """
                             }
                         }
@@ -301,10 +194,18 @@ pipeline {
 
     post {
         always {
-            bat 'docker logout'
+            script {
+                // Clean up the private key file
+                bat """
+                    if exist "${WORKSPACE}\\ec2-key.pem" (
+                        del "${WORKSPACE}\\ec2-key.pem"
+                    )
+                """
+                bat 'docker logout'
+            }
         }
         success {
-            echo 'Deployment completed successfully!'
+            echo "Deployment completed successfully! Application should be available at: http://${EC2_IP}"
         }
         failure {
             echo 'Deployment failed. Check logs for details.'
