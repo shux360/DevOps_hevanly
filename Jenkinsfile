@@ -152,14 +152,12 @@ pipeline {
                                     
                                     plink -batch -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% ^
                                         "sudo yum update -y && ^
-                                         sudo amazon-linux-extras install docker -y && ^
-                                         sudo yum install -y docker && ^
-                                         sudo usermod -aG docker %SSH_USER% && ^
-                                         sudo systemctl enable docker && ^
-                                         sudo systemctl start docker && ^
-                                         sudo chmod 666 /var/run/docker.sock && ^
-                                         docker --version && ^
-                                         sudo yum install -y nc"
+                                        sudo amazon-linux-extras install docker -y && ^
+                                        sudo service docker start && ^
+                                        sudo systemctl enable docker && ^
+                                        sudo usermod -a -G docker %SSH_USER% && ^
+                                        sudo chmod 666 /var/run/docker.sock && ^
+                                        docker --version || echo 'DOCKER INSTALLATION FAILED'"
                                     
                                     del "%TEMP_KEY%" > nul 2>&1
                                     endlocal
