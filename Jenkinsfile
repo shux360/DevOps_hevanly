@@ -10,7 +10,9 @@ pipeline {
         EC2_IP = '13.218.71.125'
         EC2_USER = 'ec2-user'
         AWS_REGION = 'us-east-1'
-        SSH_OPTS = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR'
+        // Add public URLs for verification
+        FRONTEND_URL = "http://${EC2_IP}:5173"
+        BACKEND_URL = "http://${EC2_IP}:3001"
     }
 
     stages {
@@ -75,46 +77,28 @@ pipeline {
                     }
                 }
 
-                stage('Prepare EC2 Connection') {
+                stage('Check Security Groups') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(
-                                credentialsId: 'ec2-cred', 
-                                keyFileVariable: 'PRIVATE_KEY',
-                                usernameVariable: 'SSH_USER'
-                            )]) {
-                                // Write the private key to a file
-                                writeFile file: "${WORKSPACE}/ec2-key.pem", text: PRIVATE_KEY
-                                
-                                // Set proper permissions on Windows
+                            withCredentials([[
+                                $class: 'AmazonWebServicesCredentialsBinding',
+                                credentialsId: 'aws-cred',
+                                accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                                secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                            ]]) {
+                                // Verify security group has needed ports open
                                 bat """
-                                    @echo off
-                                    set KEY_FILE="${WORKSPACE}\\ec2-key.pem"
-                                    
-                                    :: Remove inheritance and all existing permissions
-                                    icacls %KEY_FILE% /inheritance:r
-                                    icacls %KEY_FILE% /remove:g "Everyone" >nul 2>&1
-                                    icacls %KEY_FILE% /remove:g "Users" >nul 2>&1
-                                    
-                                    :: Grant full control to SYSTEM and Administrators
-                                    icacls %KEY_FILE% /grant:r "SYSTEM:(F)"
-                                    icacls %KEY_FILE% /grant:r "Administrators:(F)"
-                                    
-                                    :: Grant read-only to the Jenkins service account
-                                    icacls %KEY_FILE% /grant:r "%USERNAME%:(R)"
-                                    
-                                    :: Verify permissions
-                                    icacls %KEY_FILE%
-                                    
-                                    :: Make sure the file is not readable by others
-                                    attrib +R %KEY_FILE%
+                                    aws ec2 describe-security-groups --region %AWS_REGION% --filters "Name=ip-permission.to-port,Values=5173,3001" "Name=ip-permission.protocol,Values=tcp"
+                                    if %ERRORLEVEL% NEQ 0 (
+                                        echo WARNING: Security group might not have ports 5173 and 3001 open
+                                    )
                                 """
                             }
                         }
                     }
                 }
 
-                stage('Install Docker on EC2') {
+                stage('Access EC2 Instance') {
                     steps {
                         script {
                             withCredentials([sshUserPrivateKey(
@@ -122,26 +106,63 @@ pipeline {
                                 keyFileVariable: 'PRIVATE_KEY',
                                 usernameVariable: 'SSH_USER'
                             )]) {
-                                // Create a temporary script file with the commands
-                                def dockerInstallScript = """
-                                    #!/bin/bash
-                                    sudo yum update -y
-                                    sudo amazon-linux-extras install docker -y
-                                    sudo yum install -y docker
-                                    sudo usermod -aG docker ${SSH_USER}
-                                    sudo systemctl enable docker
-                                    sudo systemctl start docker
-                                    sudo chmod 666 /var/run/docker.sock
-                                    docker --version
-                                """.stripIndent()
-                                
-                                writeFile file: "${WORKSPACE}/install_docker.sh", text: dockerInstallScript
-                                
                                 bat """
-                                    pscp -i "${WORKSPACE}\\ec2-key.pem" ${SSH_OPTS} "${WORKSPACE}\\install_docker.sh" ${SSH_USER}@${EC2_IP}:/tmp/install_docker.sh
-                                    plink -batch -ssh -i "${WORKSPACE}\\ec2-key.pem" ${SSH_USER}@${EC2_IP} ${SSH_OPTS} ^
-                                        "chmod +x /tmp/install_docker.sh && /tmp/install_docker.sh && rm -f /tmp/install_docker.sh"
-                                    del "${WORKSPACE}\\install_docker.sh"
+                                    @echo off
+                                    echo %PRIVATE_KEY% > "%TEMP%\\ec2-key.pem"
+                                    
+                                    :: Fix permissions (using SYSTEM account)
+                                    icacls "%TEMP%\\ec2-key.pem" /inheritance:r
+                                    icacls "%TEMP%\\ec2-key.pem" /grant:r "SYSTEM:(R)"
+                                    icacls "%TEMP%\\ec2-key.pem" /grant:r "%USERNAME%:(R)"
+                                    
+                                    :: Use full path to ssh.exe (Git for Windows version)
+                                    where ssh > nul 2>&1
+                                    if errorlevel 1 (
+                                        echo SSH not found in PATH
+                                        exit /b 1
+                                    )
+                                    
+                                    :: Connect with verbose output for debugging
+                                    ssh -vvv -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i "%TEMP%\\ec2-key.pem" %SSH_USER%@%EC2_IP% "echo Connected successfully && whoami"
+                                    
+                                    :: Clean up
+                                    del "%TEMP%\\ec2-key.pem"
+                                """
+                            }
+                        }
+                    }
+                }
+
+                stage('Install Docker') {
+                    steps {
+                        script {
+                            withCredentials([sshUserPrivateKey(
+                                credentialsId: 'ec2-cred', 
+                                keyFileVariable: 'PRIVATE_KEY',
+                                usernameVariable: 'SSH_USER'
+                            )]) {
+                                bat """
+                                    @echo off
+                                    setlocal
+                                    
+                                    set TEMP_KEY=%WORKSPACE%\\temp_ec2_key.pem
+                                    copy "%PRIVATE_KEY%" "%TEMP_KEY%" > nul
+                                    icacls "%TEMP_KEY%" /inheritance:r
+                                    icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
+                                    
+                                    plink -batch -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% ^
+                                        "sudo yum update -y && ^
+                                         sudo amazon-linux-extras install docker -y && ^
+                                         sudo yum install -y docker && ^
+                                         sudo usermod -aG docker %SSH_USER% && ^
+                                         sudo systemctl enable docker && ^
+                                         sudo systemctl start docker && ^
+                                         sudo chmod 666 /var/run/docker.sock && ^
+                                         docker --version && ^
+                                         sudo yum install -y nc"
+                                    
+                                    del "%TEMP_KEY%" > nul 2>&1
+                                    endlocal
                                 """
                             }
                         }
@@ -172,25 +193,36 @@ pipeline {
                                 )
                             ]) {
                                 bat """
-                                    plink -batch -ssh -i "${WORKSPACE}\\ec2-key.pem" ${SSH_USER}@${EC2_IP} ${SSH_OPTS} <<EOF
-                                    docker logout
-                                    echo ${DOCKER_TOKEN} | docker login -u ${DOCKERHUB_USERNAME} --password-stdin
-                                    docker stop ${COMPOSE_PROJECT_NAME}-frontend || true
-                                    docker stop ${COMPOSE_PROJECT_NAME}-backend || true
-                                    docker rm ${COMPOSE_PROJECT_NAME}-frontend || true
-                                    docker rm ${COMPOSE_PROJECT_NAME}-backend || true
-                                    docker pull ${FRONTEND_IMAGE}:${BUILD_NUMBER}
-                                    docker pull ${BACKEND_IMAGE}:${BUILD_NUMBER}
-                                    docker run -d --name ${COMPOSE_PROJECT_NAME}-frontend -p 80:5173 -e HOST=0.0.0.0 ${FRONTEND_IMAGE}:${BUILD_NUMBER}
-                                    docker run -d --name ${COMPOSE_PROJECT_NAME}-backend -p 3001:3001 -e HOST=0.0.0.0 -e MONGO_URL='${MONGO_URL_SECRET}' -e JWT_SECRET='${JWT_SECRET_SECRET}' ${BACKEND_IMAGE}:${BUILD_NUMBER}
-                                    docker ps
-                                    EOF
+                                    @echo off
+                                    setlocal
+                                    
+                                    set TEMP_KEY=%WORKSPACE%\\temp_ec2_key.pem
+                                    echo %PRIVATE_KEY% > "%TEMP_KEY%"
+                                    icacls "%TEMP_KEY%" /inheritance:r
+                                    icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
+                                    
+                                    plink -batch -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% ^
+                                        "docker logout && ^
+                                        docker login -u %DOCKERHUB_USERNAME% -p %DOCKER_TOKEN% && ^
+                                        docker stop ${COMPOSE_PROJECT_NAME}-frontend || true && ^
+                                        docker stop ${COMPOSE_PROJECT_NAME}-backend || true && ^
+                                        docker rm ${COMPOSE_PROJECT_NAME}-frontend || true && ^
+                                        docker rm ${COMPOSE_PROJECT_NAME}-backend || true && ^
+                                        docker network create app-network || true && ^
+                                        docker pull ${FRONTEND_IMAGE}:${BUILD_NUMBER} && ^
+                                        docker pull ${BACKEND_IMAGE}:${BUILD_NUMBER} && ^
+                                        docker run -d --name ${COMPOSE_PROJECT_NAME}-frontend --network app-network -p 5173:5173 -e HOST=0.0.0.0 -e PUBLIC_IP=%EC2_IP% ${FRONTEND_IMAGE}:${BUILD_NUMBER} && ^
+                                        docker run -d --name ${COMPOSE_PROJECT_NAME}-backend --network app-network -p 3001:3001 -e HOST=0.0.0.0 -e PUBLIC_IP=%EC2_IP% -e MONGO_URL='%MONGO_URL_SECRET%' -e JWT_SECRET='%JWT_SECRET_SECRET%' ${BACKEND_IMAGE}:${BUILD_NUMBER} && ^
+                                        docker ps"
+                                    
+                                    del "%TEMP_KEY%" > nul 2>&1
+                                    endlocal
                                 """
                             }
                         }
                     }
                 }
-
+                
                 stage('Verify Deployment') {
                     steps {
                         script {
@@ -200,19 +232,50 @@ pipeline {
                                 usernameVariable: 'SSH_USER'
                             )]) {
                                 bat """
-                                    plink -batch -ssh -i "${WORKSPACE}\\ec2-key.pem" ${SSH_USER}@${EC2_IP} ${SSH_OPTS} <<EOF
-                                    echo "Checking running containers..."
-                                    docker ps
-                                    echo "Checking frontend logs..."
-                                    docker logs ${COMPOSE_PROJECT_NAME}-frontend --tail 50
-                                    echo "Checking backend logs..."
-                                    docker logs ${COMPOSE_PROJECT_NAME}-backend --tail 50
-                                    echo "Checking network connectivity..."
-                                    curl -I http://localhost:5173 || true
-                                    curl -I http://localhost:3001 || true
-                                    EOF
+                                    @echo off
+                                    setlocal
+                                    
+                                    set TEMP_KEY=%WORKSPACE%\\temp_verify_key.pem
+                                    echo %PRIVATE_KEY% > "%TEMP_KEY%"
+                                    icacls "%TEMP_KEY%" /inheritance:r
+                                    icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
+                                    
+                                    echo "Waiting 30 seconds for containers to fully start up..."
+                                    timeout /t 30 /nobreak
+                                    
+                                    plink -batch -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% ^
+                                        "echo 'Checking running containers...' && ^
+                                        docker ps && ^
+                                        echo 'Checking frontend logs...' && ^
+                                        docker logs %COMPOSE_PROJECT_NAME%-frontend --tail 20 && ^
+                                        echo 'Checking backend logs...' && ^
+                                        docker logs %COMPOSE_PROJECT_NAME%-backend --tail 20 && ^
+                                        echo 'Verifying ports are actually listening...' && ^
+                                        (nc -z localhost 5173 && echo 'Frontend port 5173 is open') || echo 'ERROR: Frontend port 5173 is NOT listening' && ^
+                                        (nc -z localhost 3001 && echo 'Backend port 3001 is open') || echo 'ERROR: Backend port 3001 is NOT listening' && ^
+                                        echo 'Checking network configuration inside containers:' && ^
+                                        docker exec %COMPOSE_PROJECT_NAME%-frontend env | grep HOST && ^
+                                        docker exec %COMPOSE_PROJECT_NAME%-backend env | grep HOST"
+                                    
+                                    del "%TEMP_KEY%" > nul 2>&1
+                                    endlocal
                                 """
                             }
+                        }
+                    }
+                }
+                
+                stage('Test External Access') {
+                    steps {
+                        script {
+                            // Test if frontend is accessible from Jenkins server
+                            bat """
+                                echo "Testing if frontend is accessible from Jenkins..."
+                                curl -m 10 -s -o nul -w "%%{http_code}" ${FRONTEND_URL} || echo "Failed to connect to frontend"
+                                
+                                echo "Testing if backend is accessible from Jenkins..."
+                                curl -m 10 -s -o nul -w "%%{http_code}" ${BACKEND_URL} || echo "Failed to connect to backend"
+                            """
                         }
                     }
                 }
@@ -222,18 +285,12 @@ pipeline {
 
     post {
         always {
-            script {
-                // Clean up the private key file
-                bat """
-                    if exist "${WORKSPACE}\\ec2-key.pem" (
-                        del "${WORKSPACE}\\ec2-key.pem"
-                    )
-                """
-                bat 'docker logout'
-            }
+            bat 'docker logout'
         }
         success {
-            echo "Deployment completed successfully! Application should be available at: http://${EC2_IP}"
+            echo 'Deployment completed successfully!'
+            echo "Your application should be accessible at: ${FRONTEND_URL}"
+            echo "Your backend API should be accessible at: ${BACKEND_URL}"
         }
         failure {
             echo 'Deployment failed. Check logs for details.'
