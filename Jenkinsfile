@@ -77,10 +77,30 @@ pipeline {
                 stage('Connect to EC2') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                            withCredentials([sshUserPrivateKey(
+                                credentialsId: 'wsl-ec2', 
+                                keyFileVariable: 'PRIVATE_KEY_PATH',
+                                usernameVariable: 'SSH_USER'
+                            )]) {
                                 sh """
-                                chmod 600 ${PRIVATE_KEY_PATH} # Ensure the private key is secured
-                                ssh -o StrictHostKeyChecking=no -i "${PRIVATE_KEY_PATH}" ec2-user@13.218.71.125 "echo 'Logged into EC2 successfully!'"
+                                    # Debug: Show key file location and permissions
+                                    echo "Private key path: ${PRIVATE_KEY_PATH}"
+                                    ls -l ${PRIVATE_KEY_PATH}
+                                    
+                                    # Set strict permissions for the key
+                                    chmod 600 ${PRIVATE_KEY_PATH}
+                                    
+                                    # Test basic connectivity
+                                    echo "Testing connection to port 22..."
+                                    nc -zv 13.218.71.125 22
+                                    
+                                    # Verbose SSH connection test
+                                    echo "Attempting SSH connection with verbose output..."
+                                    ssh -vvv -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                                        -i "${PRIVATE_KEY_PATH}" ec2-user@13.218.71.125 \
+                                        "echo 'Logged into EC2 successfully!'; \
+                                        echo 'EC2 OS Info:'; cat /etc/os-release; \
+                                        echo 'Docker status:'; sudo systemctl status docker || echo 'Docker not installed'"
                                 """
                             }
                         }
