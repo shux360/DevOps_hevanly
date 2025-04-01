@@ -78,12 +78,19 @@ pipeline {
                     steps {
                         script {
                             withCredentials([sshUserPrivateKey(
-                                credentialsId: 'ec2-user', // Use your SSH credentials ID
+                                credentialsId: 'ec2-cred', // Must match your credentials ID
                                 keyFileVariable: 'SSH_KEY',
                                 usernameVariable: 'SSH_USER'
                             )]) {
+                                // First debug: Print the key path
+                                bat 'echo Key path: %SSH_KEY%'
+                                
+                                // Second debug: Check if file exists
+                                bat 'if exist "%SSH_KEY%" (echo Key exists) else (echo Key missing)'
+                                
+                                // Connect with full debugging
                                 bat """
-                                    plink -ssh -i "%SSH_KEY_FILE%" ec2-user@13.218.71.125 "echo Connected successfully"
+                                    plink -v -batch -ssh -i "%SSH_KEY%" %SSH_USER%@13.218.71.125 "echo Connected successfully"
                                 """
                             }
                         }
