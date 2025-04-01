@@ -2,30 +2,17 @@ pipeline {
     agent any
     
     environment {
-        // Docker configuration
         DOCKER_REGISTRY = 'docker.io'
         DOCKERHUB_USERNAME = 'shux360'
         COMPOSE_PROJECT_NAME = 'devops_hevanly'
         FRONTEND_IMAGE = "${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-frontend"
         BACKEND_IMAGE = "${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-backend"
-        
-        // EC2 configuration
         EC2_IP = '13.218.71.125'
-        EC2_USER = 'ec2-user'  // Default AWS EC2 user
-        
-        // AWS Region
-        AWS_REGION = 'us-east-1'  // Update with your region
+        EC2_USER = 'ec2-user'
+        AWS_REGION = 'us-east-1'
     }
 
     stages {
-        stage('Github Trigger') {
-            steps {
-                script {
-                    properties([pipelineTriggers([githubPush()])])
-                }
-            }
-        }
-
         stage('SCM Checkout') {
             steps {
                 checkout scm
@@ -51,7 +38,7 @@ pipeline {
                 )]) {
                     bat """
                         docker logout
-                        docker login -u %DOCKER_USERNAME% -p %DOCKER_TOKEN% ${DOCKER_REGISTRY}
+                        docker login -u %DOCKER_USERNAME% -p %DOCKER_TOKEN%
                     """
                 }
             }
@@ -66,7 +53,6 @@ pipeline {
             }
         }
 
-        // EC2 Deployment Stages
         stage('EC2 Deployment') {
             stages {
                 stage('Configure AWS CLI') {
@@ -87,53 +73,35 @@ pipeline {
                         }
                     }
                 }
-                
+
                 stage('Connect to EC2') {
                     steps {
                         script {
                             withCredentials([sshUserPrivateKey(
-                                credentialsId: 'aws-cred', 
+                                credentialsId: 'aws-cred',
                                 keyFileVariable: 'PRIVATE_KEY_PATH',
                                 usernameVariable: 'SSH_USER'
                             )]) {
+                                // Create a temporary key file with correct permissions
                                 bat """
                                     @echo off
                                     setlocal
-                                    set DEBUG_LOG=%WORKSPACE%\\ssh_debug.log
                                     
-                                    :: 1. First verify the private key exists
-                                    if not exist "%PRIVATE_KEY_PATH%" (
-                                        echo ERROR: Private key not found at %PRIVATE_KEY_PATH%
-                                        exit /b 1
-                                    )
+                                    :: Create a clean temporary key file
+                                    set TEMP_KEY=%WORKSPACE%\\temp_ec2_key.pem
+                                    copy "%PRIVATE_KEY_PATH%" "%TEMP_KEY%" > nul
                                     
-                                    :: 2. Display basic debug info
-                                    echo DEBUG: Connecting to %SSH_USER%@%EC2_IP% >> %DEBUG_LOG%
-                                    echo DEBUG: Using key file: %PRIVATE_KEY_PATH% >> %DEBUG_LOG%
+                                    :: Fix permissions (Windows-specific)
+                                    icacls "%TEMP_KEY%" /inheritance:r
+                                    icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
                                     
-                                    :: 3. Test basic SSH connection with full debug output
-                                    ssh -vvv -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o ConfigFile=NUL -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'" >> %DEBUG_LOG% 2>&1
+                                    :: Test connection with all config files disabled
+                                    ssh -i "%TEMP_KEY%" -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o ConfigFile=NUL %SSH_USER%@%EC2_IP% "echo Connected successfully"
                                     
                                     if errorlevel 1 (
-                                        echo ERROR: SSH connection failed. Checking debug information...
-                                        type %DEBUG_LOG%
-                                        
-                                        :: 4. Alternative connection method using Plink (PuTTY)
-                                        echo Trying alternative connection with Plink... >> %DEBUG_LOG%
-                                        if exist "C:\\Program Files\\PuTTY\\plink.exe" (
-                                            "C:\\Program Files\\PuTTY\\plink.exe" -batch -ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'Plink connection successful'" >> %DEBUG_LOG% 2>&1
-                                            if errorlevel 1 (
-                                                echo ERROR: Plink also failed
-                                                type %DEBUG_LOG%
-                                                exit /b 1
-                                            )
-                                            echo SUCCESS: Connected using Plink
-                                        ) else (
-                                            echo ERROR: Plink not available at C:\\Program Files\\PuTTY\\plink.exe
-                                            exit /b 1
-                                        )
-                                    ) else (
-                                        echo SUCCESS: Connected using native SSH
+                                        echo ERROR: Failed to connect to EC2
+                                        del "%TEMP_KEY%" > nul 2>&1
+                                        exit /b 1
                                     )
                                     
                                     endlocal
@@ -142,8 +110,8 @@ pipeline {
                         }
                     }
                 }
-                
-                stage('Install Docker on EC2') {
+
+                stage('Install Docker') {
                     steps {
                         script {
                             withCredentials([sshUserPrivateKey(
@@ -152,93 +120,32 @@ pipeline {
                                 usernameVariable: 'SSH_USER'
                             )]) {
                                 bat """
-                                    ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% << 'EOF'
-                                    #!/bin/bash
-                                    sudo yum update -y
-                                    sudo amazon-linux-extras install docker -y
-                                    sudo yum install -y docker
-                                    sudo usermod -aG docker $USER
-                                    sudo systemctl enable docker
-                                    sudo systemctl start docker
-                                    sudo chmod 666 /var/run/docker.sock
-                                    docker --version
-                                    EOF
+                                    @echo off
+                                    setlocal
+                                    
+                                    set TEMP_KEY=%WORKSPACE%\\temp_ec2_key.pem
+                                    copy "%PRIVATE_KEY_PATH%" "%TEMP_KEY%" > nul
+                                    icacls "%TEMP_KEY%" /inheritance:r
+                                    icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
+                                    
+                                    plink -batch -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% ^
+                                        "sudo yum update -y && ^
+                                         sudo amazon-linux-extras install docker -y && ^
+                                         sudo yum install -y docker && ^
+                                         sudo usermod -aG docker %SSH_USER% && ^
+                                         sudo systemctl enable docker && ^
+                                         sudo systemctl start docker && ^
+                                         sudo chmod 666 /var/run/docker.sock && ^
+                                         docker --version"
+                                    
+                                    del "%TEMP_KEY%" > nul 2>&1
+                                    endlocal
                                 """
                             }
                         }
                     }
                 }
-                
-                stage('Clean Previous Deployment') {
-                    steps {
-                        script {
-                            withCredentials([sshUserPrivateKey(
-                                credentialsId: 'aws-cred',
-                                keyFileVariable: 'PRIVATE_KEY_PATH',
-                                usernameVariable: 'SSH_USER'
-                            )]) {
-                                bat """
-                                    ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% << 'EOF'
-                                    #!/bin/bash
-                                    docker stop ${COMPOSE_PROJECT_NAME}-frontend || true
-                                    docker stop ${COMPOSE_PROJECT_NAME}-backend || true
-                                    docker rm ${COMPOSE_PROJECT_NAME}-frontend || true
-                                    docker rm ${COMPOSE_PROJECT_NAME}-backend || true
-                                    docker image prune -a -f
-                                    EOF
-                                """
-                            }
-                        }
-                    }
-                }
-                
-                stage('Login to Docker Hub on EC2') {
-                    steps {
-                        script {
-                            withCredentials([
-                                usernamePassword(
-                                    credentialsId: 'dockerhub-cred',
-                                    passwordVariable: 'DOCKER_TOKEN',
-                                    usernameVariable: 'DOCKER_USERNAME'
-                                ),
-                                sshUserPrivateKey(
-                                    credentialsId: 'aws-cred',
-                                    keyFileVariable: 'PRIVATE_KEY_PATH',
-                                    usernameVariable: 'SSH_USER'
-                                )
-                            ]) {
-                                bat """
-                                    ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% << 'EOF'
-                                    #!/bin/bash
-                                    docker logout
-                                    docker login -u ${DOCKER_USERNAME} -p ${DOCKER_TOKEN}
-                                    EOF
-                                """
-                            }
-                        }
-                    }
-                }
-                
-                stage('Pull New Images on EC2') {
-                    steps {
-                        script {
-                            withCredentials([sshUserPrivateKey(
-                                credentialsId: 'aws-cred',
-                                keyFileVariable: 'PRIVATE_KEY_PATH',
-                                usernameVariable: 'SSH_USER'
-                            )]) {
-                                bat """
-                                    ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% << 'EOF'
-                                    #!/bin/bash
-                                    docker pull ${FRONTEND_IMAGE}:${BUILD_NUMBER}
-                                    docker pull ${BACKEND_IMAGE}:${BUILD_NUMBER}
-                                    EOF
-                                """
-                            }
-                        }
-                    }
-                }
-                
+
                 stage('Deploy Containers') {
                     steps {
                         script {
@@ -248,44 +155,29 @@ pipeline {
                                 usernameVariable: 'SSH_USER'
                             )]) {
                                 bat """
-                                    ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% << 'EOF'
-                                    #!/bin/bash
-                                    docker run -d \
-                                        --name ${COMPOSE_PROJECT_NAME}-frontend \
-                                        -p 5173:5173 \
-                                        ${FRONTEND_IMAGE}:${BUILD_NUMBER}
+                                    @echo off
+                                    setlocal
                                     
-                                    docker run -d \
-                                        --name ${COMPOSE_PROJECT_NAME}-backend \
-                                        -p 3001:3001 \
-                                        -e MONGO_URL=${MONGO_URL} \
-                                        -e JWT_SECRET=${JWT_SECRET} \
-                                        ${BACKEND_IMAGE}:${BUILD_NUMBER}
-                                    EOF
-                                """
-                            }
-                        }
-                    }
-                }
-                
-                stage('Verify Deployment') {
-                    steps {
-                        script {
-                            withCredentials([sshUserPrivateKey(
-                                credentialsId: 'aws-cred',
-                                keyFileVariable: 'PRIVATE_KEY_PATH',
-                                usernameVariable: 'SSH_USER'
-                            )]) {
-                                bat """
-                                    ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% << 'EOF'
-                                    #!/bin/bash
-                                    echo "Running containers:"
-                                    docker ps
-                                    echo -e "\nFrontend logs:"
-                                    docker logs ${COMPOSE_PROJECT_NAME}-frontend --tail 50
-                                    echo -e "\nBackend logs:"
-                                    docker logs ${COMPOSE_PROJECT_NAME}-backend --tail 50
-                                    EOF
+                                    set TEMP_KEY=%WORKSPACE%\\temp_ec2_key.pem
+                                    copy "%PRIVATE_KEY_PATH%" "%TEMP_KEY%" > nul
+                                    icacls "%TEMP_KEY%" /inheritance:r
+                                    icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
+                                    
+                                    plink -batch -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% ^
+                                        "docker logout && ^
+                                         docker login -u %DOCKERHUB_USERNAME% -p %DOCKER_TOKEN% && ^
+                                         docker stop ${COMPOSE_PROJECT_NAME}-frontend || true && ^
+                                         docker stop ${COMPOSE_PROJECT_NAME}-backend || true && ^
+                                         docker rm ${COMPOSE_PROJECT_NAME}-frontend || true && ^
+                                         docker rm ${COMPOSE_PROJECT_NAME}-backend || true && ^
+                                         docker pull ${FRONTEND_IMAGE}:${BUILD_NUMBER} && ^
+                                         docker pull ${BACKEND_IMAGE}:${BUILD_NUMBER} && ^
+                                         docker run -d --name ${COMPOSE_PROJECT_NAME}-frontend -p 5173:5173 ${FRONTEND_IMAGE}:${BUILD_NUMBER} && ^
+                                         docker run -d --name ${COMPOSE_PROJECT_NAME}-backend -p 3001:3001 -e MONGO_URL=${MONGO_URL} -e JWT_SECRET=${JWT_SECRET} ${BACKEND_IMAGE}:${BUILD_NUMBER} && ^
+                                         docker ps"
+                                    
+                                    del "%TEMP_KEY%" > nul 2>&1
+                                    endlocal
                                 """
                             }
                         }
@@ -294,21 +186,10 @@ pipeline {
             }
         }
     }
-    
+
     post {
         always {
             bat 'docker logout'
-            script {
-                withCredentials([sshUserPrivateKey(
-                    credentialsId: 'aws-cred',
-                    keyFileVariable: 'PRIVATE_KEY_PATH',
-                    usernameVariable: 'SSH_USER'
-                )]) {
-                    bat """
-                        ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "docker logout"
-                    """
-                }
-            }
         }
         success {
             echo 'Deployment completed successfully!'
