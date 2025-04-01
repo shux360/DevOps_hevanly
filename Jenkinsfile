@@ -2,12 +2,19 @@ pipeline {
     agent any
     
     environment {
+        // Docker configuration
         DOCKER_REGISTRY = 'docker.io'
         DOCKERHUB_USERNAME = 'shux360'
         COMPOSE_PROJECT_NAME = 'devops_hevanly'
         FRONTEND_IMAGE = "${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-frontend"
         BACKEND_IMAGE = "${DOCKERHUB_USERNAME}/${COMPOSE_PROJECT_NAME}-backend"
+        
+        // EC2 configuration
         EC2_IP = '13.218.71.125'
+        EC2_USER = 'ec2-user'  // Default AWS EC2 user
+        
+        // AWS Region
+        AWS_REGION = 'us-east-1'  // Update with your region
     }
 
     stages {
@@ -44,7 +51,7 @@ pipeline {
                 )]) {
                     bat """
                         docker logout
-                        docker login -u %DOCKER_USERNAME% -p %DOCKER_TOKEN%
+                        docker login -u %DOCKER_USERNAME% -p %DOCKER_TOKEN% ${DOCKER_REGISTRY}
                     """
                 }
             }
@@ -62,29 +69,25 @@ pipeline {
         // EC2 Deployment Stages
         stage('EC2 Deployment') {
             stages {
-                // stage('Connect to EC2') {
-                //     steps {
-                //         script {
-                //             withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH', usernameVariable: 'SSH_USER')]) {
-                //                 // Using bat for Windows permission handling
-                //                 bat """
-                //                     @echo off
-                //                     setlocal
-                                    
-                //                     :: Fix permissions using icacls
-                //                     icacls "%PRIVATE_KEY_PATH%" /inheritance:r
-                //                     icacls "%PRIVATE_KEY_PATH%" /grant:r "%SSH_USER%":F
-                //                     icacls "%PRIVATE_KEY_PATH%" /remove:g "Everyone" "Authenticated Users" "BUILTIN\\Users"
-                                    
-                //                     :: Test connection
-                //                     ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'"
-                                    
-                //                     endlocal
-                //                 """
-                //             }
-                //         }
-                //     }
-                // }
+                stage('Configure AWS CLI') {
+                    steps {
+                        script {
+                            withCredentials([[
+                                $class: 'AmazonWebServicesCredentialsBinding',
+                                credentialsId: 'wsl-ec2',
+                                accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                                secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                            ]]) {
+                                bat """
+                                    aws configure set aws_access_key_id %AWS_ACCESS_KEY_ID%
+                                    aws configure set aws_secret_access_key %AWS_SECRET_ACCESS_KEY%
+                                    aws configure set region %AWS_REGION%
+                                """
+                            }
+                        }
+                    }
+                }
+                
                 stage('Connect to EC2') {
                     steps {
                         script {
@@ -93,24 +96,16 @@ pipeline {
                                 keyFileVariable: 'PRIVATE_KEY_PATH',
                                 usernameVariable: 'SSH_USER'
                             )]) {
-                                // Simplified and more reliable approach
                                 bat """
                                     @echo off
                                     setlocal
                                     
-                                    :: 1. Use a more reliable SSH command that doesn't require strict permissions
-                                    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'"
+                                    :: Test basic connection
+                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'"
                                     
-                                    :: 2. Alternative approach if above fails (no permission changes needed)
                                     if errorlevel 1 (
-                                        echo Trying alternative connection method...
-                                        :: Use plink if available (from PuTTY)
-                                        if exist "C:\\Program Files\\PuTTY\\plink.exe" (
-                                            "C:\\Program Files\\PuTTY\\plink.exe" -batch -ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'"
-                                        ) else (
-                                            echo ERROR: Failed to connect to EC2 instance
-                                            exit /b 1
-                                        )
+                                        echo ERROR: Failed to connect to EC2 instance
+                                        exit /b 1
                                     )
                                     
                                     endlocal
@@ -120,71 +115,96 @@ pipeline {
                     }
                 }
                 
-                stage('Install Docker') {
+                stage('Install Docker on EC2') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'aws-cred', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                            withCredentials([sshUserPrivateKey(
+                                credentialsId: 'aws-cred',
+                                keyFileVariable: 'PRIVATE_KEY_PATH',
+                                usernameVariable: 'SSH_USER'
+                            )]) {
                                 bat """
-                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
-                                    sudo yum update -y || true
-                                    sudo amazon-linux-extras install docker -y || true
-                                    sudo yum install -y docker || true
-                                    sudo usermod -aG docker %EC2_USER%
+                                    ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% << 'EOF'
+                                    #!/bin/bash
+                                    sudo yum update -y
+                                    sudo amazon-linux-extras install docker -y
+                                    sudo yum install -y docker
+                                    sudo usermod -aG docker $USER
                                     sudo systemctl enable docker
-                                    sudo systemctl restart docker
-                                    "
-                                """
-                            }
-                        }
-                    }
-}
-                
-                stage('Configure Docker Environment') {
-                    steps {
-                        script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'aws-cred', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
-                                bat """
-                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
-                                    sudo amazon-linux-extras install docker -y || true
-                                    sudo yum install -y docker || true
-                                    sudo usermod -aG docker %EC2_USER%
-                                    sudo systemctl enable docker
-                                    sudo systemctl restart docker
+                                    sudo systemctl start docker
                                     sudo chmod 666 /var/run/docker.sock
                                     docker --version
-                                    "
+                                    EOF
                                 """
                             }
                         }
                     }
                 }
                 
-                stage('Clean Previous Deployments') {
+                stage('Clean Previous Deployment') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'aws-cred', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                            withCredentials([sshUserPrivateKey(
+                                credentialsId: 'aws-cred',
+                                keyFileVariable: 'PRIVATE_KEY_PATH',
+                                usernameVariable: 'SSH_USER'
+                            )]) {
                                 bat """
-                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
+                                    ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% << 'EOF'
+                                    #!/bin/bash
                                     docker stop ${COMPOSE_PROJECT_NAME}-frontend || true
                                     docker stop ${COMPOSE_PROJECT_NAME}-backend || true
-                                    docker container prune -f
+                                    docker rm ${COMPOSE_PROJECT_NAME}-frontend || true
+                                    docker rm ${COMPOSE_PROJECT_NAME}-backend || true
                                     docker image prune -a -f
-                                    "
+                                    EOF
                                 """
                             }
                         }
                     }
                 }
                 
-                stage('Pull New Images') {
+                stage('Login to Docker Hub on EC2') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'aws-cred', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                            withCredentials([
+                                usernamePassword(
+                                    credentialsId: 'dockerhub-cred',
+                                    passwordVariable: 'DOCKER_TOKEN',
+                                    usernameVariable: 'DOCKER_USERNAME'
+                                ),
+                                sshUserPrivateKey(
+                                    credentialsId: 'aws-cred',
+                                    keyFileVariable: 'PRIVATE_KEY_PATH',
+                                    usernameVariable: 'SSH_USER'
+                                )
+                            ]) {
                                 bat """
-                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
+                                    ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% << 'EOF'
+                                    #!/bin/bash
+                                    docker logout
+                                    docker login -u ${DOCKER_USERNAME} -p ${DOCKER_TOKEN}
+                                    EOF
+                                """
+                            }
+                        }
+                    }
+                }
+                
+                stage('Pull New Images on EC2') {
+                    steps {
+                        script {
+                            withCredentials([sshUserPrivateKey(
+                                credentialsId: 'aws-cred',
+                                keyFileVariable: 'PRIVATE_KEY_PATH',
+                                usernameVariable: 'SSH_USER'
+                            )]) {
+                                bat """
+                                    ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% << 'EOF'
+                                    #!/bin/bash
                                     docker pull ${FRONTEND_IMAGE}:${BUILD_NUMBER}
                                     docker pull ${BACKEND_IMAGE}:${BUILD_NUMBER}
-                                    "
+                                    EOF
                                 """
                             }
                         }
@@ -194,12 +214,26 @@ pipeline {
                 stage('Deploy Containers') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'aws-cred', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                            withCredentials([sshUserPrivateKey(
+                                credentialsId: 'aws-cred',
+                                keyFileVariable: 'PRIVATE_KEY_PATH',
+                                usernameVariable: 'SSH_USER'
+                            )]) {
                                 bat """
-                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
-                                    docker run -d --name ${COMPOSE_PROJECT_NAME}-frontend -p 5173:5173 ${FRONTEND_IMAGE}:${BUILD_NUMBER}
-                                    docker run -d --name ${COMPOSE_PROJECT_NAME}-backend -p 3001:3001 ${BACKEND_IMAGE}:${BUILD_NUMBER}
-                                    "
+                                    ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% << 'EOF'
+                                    #!/bin/bash
+                                    docker run -d \
+                                        --name ${COMPOSE_PROJECT_NAME}-frontend \
+                                        -p 5173:5173 \
+                                        ${FRONTEND_IMAGE}:${BUILD_NUMBER}
+                                    
+                                    docker run -d \
+                                        --name ${COMPOSE_PROJECT_NAME}-backend \
+                                        -p 3001:3001 \
+                                        -e MONGO_URL=${MONGO_URL} \
+                                        -e JWT_SECRET=${JWT_SECRET} \
+                                        ${BACKEND_IMAGE}:${BUILD_NUMBER}
+                                    EOF
                                 """
                             }
                         }
@@ -209,16 +243,21 @@ pipeline {
                 stage('Verify Deployment') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'aws-cred', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                            withCredentials([sshUserPrivateKey(
+                                credentialsId: 'aws-cred',
+                                keyFileVariable: 'PRIVATE_KEY_PATH',
+                                usernameVariable: 'SSH_USER'
+                            )]) {
                                 bat """
-                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
-                                    echo 'Running containers:'
+                                    ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% << 'EOF'
+                                    #!/bin/bash
+                                    echo "Running containers:"
                                     docker ps
-                                    echo '\nFrontend logs:'
+                                    echo -e "\nFrontend logs:"
                                     docker logs ${COMPOSE_PROJECT_NAME}-frontend --tail 50
-                                    echo '\nBackend logs:'
+                                    echo -e "\nBackend logs:"
                                     docker logs ${COMPOSE_PROJECT_NAME}-backend --tail 50
-                                    "
+                                    EOF
                                 """
                             }
                         }
@@ -231,6 +270,17 @@ pipeline {
     post {
         always {
             bat 'docker logout'
+            script {
+                withCredentials([sshUserPrivateKey(
+                    credentialsId: 'aws-cred',
+                    keyFileVariable: 'PRIVATE_KEY_PATH',
+                    usernameVariable: 'SSH_USER'
+                )]) {
+                    bat """
+                        ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "docker logout"
+                    """
+                }
+            }
         }
         success {
             echo 'Deployment completed successfully!'
