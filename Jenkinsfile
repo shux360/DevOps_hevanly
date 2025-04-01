@@ -86,19 +86,29 @@ pipeline {
                                 accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                                 secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                             ]]) {
-                                // Get instance info to find security group
                                 bat """
                                     echo "Finding EC2 instance security groups..."
                                     for /f "tokens=*" %%i in ('aws ec2 describe-instances --region %AWS_REGION% --filters "Name=ip-address,Values=%EC2_IP%" --query "Reservations[0].Instances[0].SecurityGroups[0].GroupId" --output text') do set SG_ID=%%i
                                     echo "Security Group ID: %SG_ID%"
                                     
-                                    :: Add port 3001 if it doesn't exist
-                                    aws ec2 describe-security-groups --region %AWS_REGION% --group-ids %SG_ID% --query "SecurityGroups[0].IpPermissions[?ToPort==3001]" --output text
-                                    if %ERRORLEVEL% NEQ 0 (
+                                    :: Check if port 3001 is open using a more reliable method
+                                    for /f "tokens=*" %%p in ('aws ec2 describe-security-groups --region %AWS_REGION% --group-ids %SG_ID% --query "SecurityGroups[0].IpPermissions[?ToPort==\`3001\`].ToPort" --output text') do set PORT_EXISTS=%%p
+                                    
+                                    if "%PORT_EXISTS%" == "3001" (
+                                        echo "Port 3001 already exists in the security group"
+                                    ) else (
                                         echo "Adding port 3001 to security group %SG_ID%"
                                         aws ec2 authorize-security-group-ingress --region %AWS_REGION% --group-id %SG_ID% --protocol tcp --port 3001 --cidr 0.0.0.0/0
+                                    )
+                                    
+                                    :: Repeat for port 5173
+                                    for /f "tokens=*" %%p in ('aws ec2 describe-security-groups --region %AWS_REGION% --group-ids %SG_ID% --query "SecurityGroups[0].IpPermissions[?ToPort==\`5173\`].ToPort" --output text') do set PORT_EXISTS=%%p
+                                    
+                                    if "%PORT_EXISTS%" == "5173" (
+                                        echo "Port 5173 already exists in the security group"
                                     ) else (
-                                        echo "Port 3001 already exists in the security group"
+                                        echo "Adding port 5173 to security group %SG_ID%"
+                                        aws ec2 authorize-security-group-ingress --region %AWS_REGION% --group-id %SG_ID% --protocol tcp --port 5173 --cidr 0.0.0.0/0
                                     )
                                 """
                             }
