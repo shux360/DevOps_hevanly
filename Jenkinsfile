@@ -83,46 +83,31 @@ pipeline {
                                 keyFileVariable: 'PRIVATE_KEY',
                                 usernameVariable: 'SSH_USER'
                             )]) {
-                                // Use PowerShell for more reliable file operations
-                                powershell """
-                                    # Create temp directory if it doesn't exist
-                                    if (!(Test-Path -Path "${WORKSPACE}\\temp_keys")) {
-                                        New-Item -ItemType Directory -Path "${WORKSPACE}\\temp_keys" | Out-Null
-                                    }
+                                // Write the private key to a file
+                                writeFile file: "${WORKSPACE}/ec2-key.pem", text: PRIVATE_KEY
+                                
+                                // Set proper permissions on Windows
+                                bat """
+                                    @echo off
+                                    set KEY_FILE="${WORKSPACE}\\ec2-key.pem"
                                     
-                                    # Write the key file
-                                    [System.IO.File]::WriteAllText("${WORKSPACE}\\temp_keys\\ec2-key.pem", """${PRIVATE_KEY}""")
+                                    :: Remove inheritance and all existing permissions
+                                    icacls %KEY_FILE% /inheritance:r
+                                    icacls %KEY_FILE% /remove:g "Everyone" >nul 2>&1
+                                    icacls %KEY_FILE% /remove:g "Users" >nul 2>&1
                                     
-                                    # Set permissions
-                                    \$acl = Get-Acl "${WORKSPACE}\\temp_keys\\ec2-key.pem"
-                                    \$acl.SetAccessRuleProtection(\$true, \$false) # Disable inheritance
-                                    \$acl.Access | ForEach-Object { \$acl.RemoveAccessRule(\$_) } | Out-Null # Remove all rules
+                                    :: Grant full control to SYSTEM and Administrators
+                                    icacls %KEY_FILE% /grant:r "SYSTEM:(F)"
+                                    icacls %KEY_FILE% /grant:r "Administrators:(F)"
                                     
-                                    # Add new rules
-                                    \$rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-                                        "SYSTEM", "FullControl", "Allow"
-                                    )
-                                    \$acl.AddAccessRule(\$rule)
+                                    :: Grant read-only to the Jenkins service account
+                                    icacls %KEY_FILE% /grant:r "%USERNAME%:(R)"
                                     
-                                    \$rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-                                        "Administrators", "FullControl", "Allow"
-                                    )
-                                    \$acl.AddAccessRule(\$rule)
+                                    :: Verify permissions
+                                    icacls %KEY_FILE%
                                     
-                                    \$rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-                                        [System.Security.Principal.WindowsIdentity]::GetCurrent().Name, 
-                                        "Read", 
-                                        "Allow"
-                                    )
-                                    \$acl.AddAccessRule(\$rule)
-                                    
-                                    Set-Acl "${WORKSPACE}\\temp_keys\\ec2-key.pem" \$acl
-                                    
-                                    # Make file read-only
-                                    Set-ItemProperty -Path "${WORKSPACE}\\temp_keys\\ec2-key.pem" -Name IsReadOnly -Value \$true
-                                    
-                                    # Verify
-                                    Get-Acl "${WORKSPACE}\\temp_keys\\ec2-key.pem" | Format-List
+                                    :: Make sure the file is not readable by others
+                                    attrib +R %KEY_FILE%
                                 """
                             }
                         }
