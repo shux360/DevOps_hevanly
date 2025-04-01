@@ -89,38 +89,29 @@ pipeline {
                     steps {
                         script {
                             withCredentials([sshUserPrivateKey(
-                                credentialsId: 'wsl-ec2',
-                                keyFileVariable: 'PRIVATE_KEY_PATH'
+                                credentialsId: 'wsl-ec2', 
+                                keyFileVariable: 'PRIVATE_KEY_PATH',
+                                usernameVariable: 'SSH_USER'
                             )]) {
+                                // Simplified and more reliable approach
                                 bat """
                                     @echo off
                                     setlocal
                                     
-                                    :: 1. First try native SSH with minimal requirements
-                                    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "echo 'EC2 connection successful'" && (
-                                        echo Successfully connected using native SSH
-                                        exit /b 0
-                                    )
+                                    :: 1. Use a more reliable SSH command that doesn't require strict permissions
+                                    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'"
                                     
-                                    :: 2. If native SSH fails, try with PuTTY's plink
-                                    echo Native SSH failed, trying PuTTY's plink...
-                                    if exist "C:\\Program Files\\PuTTY\\plink.exe" (
-                                        "C:\\Program Files\\PuTTY\\plink.exe" -batch -ssh -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "echo 'EC2 connection successful'" && (
-                                            echo Successfully connected using plink
-                                            exit /b 0
+                                    :: 2. Alternative approach if above fails (no permission changes needed)
+                                    if errorlevel 1 (
+                                        echo Trying alternative connection method...
+                                        :: Use plink if available (from PuTTY)
+                                        if exist "C:\\Program Files\\PuTTY\\plink.exe" (
+                                            "C:\\Program Files\\PuTTY\\plink.exe" -batch -ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'"
+                                        ) else (
+                                            echo ERROR: Failed to connect to EC2 instance
+                                            exit /b 1
                                         )
                                     )
-                                    
-                                    :: 3. Final fallback - accept host key temporarily
-                                    echo Trying with temporary host key acceptance...
-                                    echo y | "C:\\Program Files\\PuTTY\\plink.exe" -ssh -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "echo 'EC2 connection successful'" && (
-                                            echo Successfully connected with temporary host key acceptance
-                                            exit /b 0
-                                        )
-                                    
-                                    :: If all methods fail
-                                    echo ERROR: All connection attempts failed
-                                    exit /b 1
                                     
                                     endlocal
                                 """
@@ -132,7 +123,7 @@ pipeline {
                 stage('Install Docker') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'aws-cred', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
                                 bat """
                                     ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
                                     sudo yum update -y || true
@@ -151,7 +142,7 @@ pipeline {
                 stage('Configure Docker Environment') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'aws-cred', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
                                 bat """
                                     ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
                                     sudo amazon-linux-extras install docker -y || true
@@ -171,7 +162,7 @@ pipeline {
                 stage('Clean Previous Deployments') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'aws-cred', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
                                 bat """
                                     ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
                                     docker stop ${COMPOSE_PROJECT_NAME}-frontend || true
@@ -188,7 +179,7 @@ pipeline {
                 stage('Pull New Images') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'aws-cred', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
                                 bat """
                                     ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
                                     docker pull ${FRONTEND_IMAGE}:${BUILD_NUMBER}
@@ -203,7 +194,7 @@ pipeline {
                 stage('Deploy Containers') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'aws-cred', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
                                 bat """
                                     ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
                                     docker run -d --name ${COMPOSE_PROJECT_NAME}-frontend -p 5173:5173 ${FRONTEND_IMAGE}:${BUILD_NUMBER}
@@ -218,7 +209,7 @@ pipeline {
                 stage('Verify Deployment') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(credentialsId: 'wsl-ec2', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'aws-cred', keyFileVariable: 'PRIVATE_KEY_PATH')]) {
                                 bat """
                                     ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %EC2_USER%@%EC2_IP% "
                                     echo 'Running containers:'
