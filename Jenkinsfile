@@ -60,7 +60,7 @@ pipeline {
                         script {
                             withCredentials([[
                                 $class: 'AmazonWebServicesCredentialsBinding',
-                                credentialsId: 'wsl-ec2', // Use your AWS credentials ID
+                                credentialsId: 'aws-cred', // Use your AWS credentials ID
                                 accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                                 secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                             ]]) {
@@ -77,13 +77,14 @@ pipeline {
                 stage('Connect to EC2') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(
-                                credentialsId: 'aws-cred', // Use your SSH credentials ID
+                            withCredentials([[
+                                $class: 'AmazonWebServicesCredentialsBinding',
+                                credentialsId: 'ec2-user', // Use your SSH credentials ID
                                 keyFileVariable: 'SSH_KEY_FILE',
                                 usernameVariable: 'SSH_USERNAME'
-                            )]) {
+                            ]]) {
                                 bat """
-                                    plink -ssh -i "%SSH_KEY_FILE%" %SSH_USERNAME%@13.218.71.125 "echo Connected successfully"
+                                    plink -ssh -i "%SSH_KEY_FILE%" ec2-user@13.218.71.125 "echo Connected successfully"
                                 """
                             }
                         }
