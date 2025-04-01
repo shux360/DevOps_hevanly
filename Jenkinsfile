@@ -92,7 +92,7 @@ pipeline {
                                     echo "Security Group ID: %SG_ID%"
                                     
                                     :: Check if port 3001 is open using a more reliable method
-                                    for /f "tokens=*" %%p in ('aws ec2 describe-security-groups --region %AWS_REGION% --group-ids %SG_ID% --query "SecurityGroups[0].IpPermissions[?ToPort==\`3001\`].ToPort" --output text') do set PORT_EXISTS=%%p
+                                    for /f "tokens=*" %%p in ('aws ec2 describe-security-groups --region %AWS_REGION% --group-ids %SG_ID% --query "SecurityGroups[0].IpPermissions[?ToPort==`3001`].ToPort" --output text') do set PORT_EXISTS=%%p
                                     
                                     if "%PORT_EXISTS%" == "3001" (
                                         echo "Port 3001 already exists in the security group"
