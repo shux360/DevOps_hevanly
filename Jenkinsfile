@@ -77,11 +77,12 @@ pipeline {
                 stage('Connect to EC2') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(
-                                credentialsId: 'wsl-ec2', 
+                            withCredentials([[
+                                $class: 'AmazonWebServicesCredentialsBinding',
+                                credentialsId: 'aws-cred', 
                                 keyFileVariable: 'PRIVATE_KEY_PATH',
                                 usernameVariable: 'SSH_USER'
-                            )]) {
+                            ]]) {
                                 bat """
                                     # Debug: Show key file location and permissions
                                     echo "Private key path: ${PRIVATE_KEY_PATH}"
