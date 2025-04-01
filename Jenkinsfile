@@ -85,10 +85,29 @@ pipeline {
                             )]) {
                                 // Write the private key to a file
                                 writeFile file: "${WORKSPACE}/ec2-key.pem", text: PRIVATE_KEY
-                                // Set proper permissions (simulated on Windows)
+                                
+                                // Set proper permissions on Windows
                                 bat """
-                                    icacls "${WORKSPACE}\\ec2-key.pem" /inheritance:r
-                                    icacls "${WORKSPACE}\\ec2-key.pem" /grant:r "%USERNAME%":F
+                                    @echo off
+                                    set KEY_FILE="${WORKSPACE}\\ec2-key.pem"
+                                    
+                                    :: Remove inheritance and all existing permissions
+                                    icacls %KEY_FILE% /inheritance:r
+                                    icacls %KEY_FILE% /remove:g "Everyone" >nul 2>&1
+                                    icacls %KEY_FILE% /remove:g "Users" >nul 2>&1
+                                    
+                                    :: Grant full control to SYSTEM and Administrators
+                                    icacls %KEY_FILE% /grant:r "SYSTEM:(F)"
+                                    icacls %KEY_FILE% /grant:r "Administrators:(F)"
+                                    
+                                    :: Grant read-only to the Jenkins service account
+                                    icacls %KEY_FILE% /grant:r "%USERNAME%:(R)"
+                                    
+                                    :: Verify permissions
+                                    icacls %KEY_FILE%
+                                    
+                                    :: Make sure the file is not readable by others
+                                    attrib +R %KEY_FILE%
                                 """
                             }
                         }
