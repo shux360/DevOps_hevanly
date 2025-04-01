@@ -74,16 +74,50 @@ pipeline {
                     }
                 }
 
-                stage('Connect to EC2') {
+                // stage('Connect to EC2') {
+                //     steps {
+                //         script {
+                //             withCredentials([sshUserPrivateKey(
+                //                 credentialsId: 'ec2-cred', 
+                //                 keyFileVariable: 'SSH_KEY',
+                //                 usernameVariable: 'SSH_USER'
+                //             )]) {
+                //                 bat """
+                //                     ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SSH_USER@13.218.71.125" "echo Connected successfully"
+                //                 """
+                //             }
+                //         }
+                //     }
+                // }
+                stage('Access EC2 Instance') {
                     steps {
                         script {
                             withCredentials([sshUserPrivateKey(
                                 credentialsId: 'ec2-cred', 
-                                keyFileVariable: 'SSH_KEY',
+                                keyFileVariable: 'PRIVATE_KEY',
                                 usernameVariable: 'SSH_USER'
                             )]) {
-                                sh """
-                                    ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SSH_USER@13.218.71.125" "echo Connected successfully"
+                                bat """
+                                    @echo off
+                                    echo %PRIVATE_KEY% > "%TEMP%\\ec2-key.pem"
+                                    
+                                    :: Fix permissions (using SYSTEM account)
+                                    icacls "%TEMP%\\ec2-key.pem" /inheritance:r
+                                    icacls "%TEMP%\\ec2-key.pem" /grant:r "SYSTEM:(R)"
+                                    icacls "%TEMP%\\ec2-key.pem" /grant:r "%USERNAME%:(R)"
+                                    
+                                    :: Use full path to ssh.exe (Git for Windows version)
+                                    where ssh > nul 2>&1
+                                    if errorlevel 1 (
+                                        echo SSH not found in PATH
+                                        exit /b 1
+                                    )
+                                    
+                                    :: Connect with verbose output for debugging
+                                    ssh -vvv -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i "%TEMP%\\ec2-key.pem" %SSH_USER%@13.218.71.125 "echo Connected successfully && whoami"
+                                    
+                                    :: Clean up
+                                    del "%TEMP%\\ec2-key.pem"
                                 """
                             }
                         }
