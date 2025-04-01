@@ -89,7 +89,7 @@ pipeline {
                     steps {
                         script {
                             withCredentials([sshUserPrivateKey(
-                                credentialsId: 'wsl-ec2', 
+                                credentialsId: 'aws-cred', 
                                 keyFileVariable: 'PRIVATE_KEY_PATH',
                                 usernameVariable: 'SSH_USER'
                             )]) {
