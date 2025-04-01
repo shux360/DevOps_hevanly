@@ -82,7 +82,7 @@ pipeline {
                                 keyFileVariable: 'PRIVATE_KEY_PATH',
                                 usernameVariable: 'SSH_USER'
                             )]) {
-                                sh """
+                                bat """
                                     # Debug: Show key file location and permissions
                                     echo "Private key path: ${PRIVATE_KEY_PATH}"
                                     ls -l ${PRIVATE_KEY_PATH}
