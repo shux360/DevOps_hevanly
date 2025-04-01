@@ -100,11 +100,14 @@ pipeline {
                                     @echo off
                                     setlocal
                                     
-                                    :: Test basic connection
-                                    ssh -o StrictHostKeyChecking=no -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'"
+                                    :: Bypass SSH config issues
+                                    set SSH_COMMAND=ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP%
+                                    
+                                    :: Test connection
+                                    %SSH_COMMAND% "echo 'EC2 connection successful'"
                                     
                                     if errorlevel 1 (
-                                        echo ERROR: Failed to connect to EC2 instance
+                                        echo ERROR: Connection failed
                                         exit /b 1
                                     )
                                     
