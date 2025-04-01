@@ -122,8 +122,9 @@ pipeline {
                                 keyFileVariable: 'PRIVATE_KEY',
                                 usernameVariable: 'SSH_USER'
                             )]) {
-                                bat """
-                                    plink -batch -ssh -i "${WORKSPACE}\\ec2-key.pem" ${SSH_USER}@${EC2_IP} ${SSH_OPTS} <<EOF
+                                // Create a temporary script file with the commands
+                                def dockerInstallScript = """
+                                    #!/bin/bash
                                     sudo yum update -y
                                     sudo amazon-linux-extras install docker -y
                                     sudo yum install -y docker
@@ -132,7 +133,15 @@ pipeline {
                                     sudo systemctl start docker
                                     sudo chmod 666 /var/run/docker.sock
                                     docker --version
-                                    EOF
+                                """.stripIndent()
+                                
+                                writeFile file: "${WORKSPACE}/install_docker.sh", text: dockerInstallScript
+                                
+                                bat """
+                                    pscp -i "${WORKSPACE}\\ec2-key.pem" ${SSH_OPTS} "${WORKSPACE}\\install_docker.sh" ${SSH_USER}@${EC2_IP}:/tmp/install_docker.sh
+                                    plink -batch -ssh -i "${WORKSPACE}\\ec2-key.pem" ${SSH_USER}@${EC2_IP} ${SSH_OPTS} ^
+                                        "chmod +x /tmp/install_docker.sh && /tmp/install_docker.sh && rm -f /tmp/install_docker.sh"
+                                    del "${WORKSPACE}\\install_docker.sh"
                                 """
                             }
                         }
