@@ -252,9 +252,41 @@ pipeline {
                                         docker rm ${COMPOSE_PROJECT_NAME}-backend || true && ^
                                         docker pull ${FRONTEND_IMAGE}:${BUILD_NUMBER} && ^
                                         docker pull ${BACKEND_IMAGE}:${BUILD_NUMBER} && ^
-                                        docker run -d --name ${COMPOSE_PROJECT_NAME}-frontend -p 5173:5173 ${FRONTEND_IMAGE}:${BUILD_NUMBER} && ^
-                                        docker run -d --name ${COMPOSE_PROJECT_NAME}-backend -p 3001:3001 -e MONGO_URL='%MONGO_URL_SECRET%' -e JWT_SECRET='%JWT_SECRET_SECRET%' ${BACKEND_IMAGE}:${BUILD_NUMBER} && ^
+                                        docker run -d --name ${COMPOSE_PROJECT_NAME}-frontend -p 5173:5173 -e HOST=0.0.0.0 ${FRONTEND_IMAGE}:${BUILD_NUMBER} && ^
+                                        docker run -d --name ${COMPOSE_PROJECT_NAME}-backend -p 3001:3001 -e HOST=0.0.0.0 -e MONGO_URL='%MONGO_URL_SECRET%' -e JWT_SECRET='%JWT_SECRET_SECRET%' ${BACKEND_IMAGE}:${BUILD_NUMBER} && ^
                                         docker ps"
+                                    
+                                    del "%TEMP_KEY%" > nul 2>&1
+                                    endlocal
+                                """
+                            }
+                        }
+                    }
+                }
+                stage('Verify Deployment') {
+                    steps {
+                        script {
+                            withCredentials([sshUserPrivateKey(
+                                credentialsId: 'ec2-cred', 
+                                keyFileVariable: 'PRIVATE_KEY',
+                                usernameVariable: 'SSH_USER'
+                            )]) {
+                                bat """
+                                    @echo off
+                                    setlocal
+                                    
+                                    set TEMP_KEY=%WORKSPACE%\\temp_verify_key.pem
+                                    echo %PRIVATE_KEY% > "%TEMP_KEY%"
+                                    icacls "%TEMP_KEY%" /inheritance:r
+                                    icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
+                                    
+                                    plink -batch -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% ^
+                                        "echo 'Checking running containers...' && ^
+                                        docker ps && ^
+                                        echo 'Checking frontend logs...' && ^
+                                        docker logs %COMPOSE_PROJECT_NAME%-frontend --tail 50 && ^
+                                        echo 'Checking backend logs...' && ^
+                                        docker logs %COMPOSE_PROJECT_NAME%-backend --tail 50"
                                     
                                     del "%TEMP_KEY%" > nul 2>&1
                                     endlocal
