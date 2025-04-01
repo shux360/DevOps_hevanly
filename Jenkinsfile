@@ -169,7 +169,7 @@ pipeline {
                                     usernameVariable: 'SSH_USER'
                                 ),
                                 usernamePassword(
-                                    credentialsId: 'dockerhub-creds',
+                                    credentialsId: 'dockerhub-cred',
                                     usernameVariable: 'DOCKERHUB_USERNAME',
                                     passwordVariable: 'DOCKER_TOKEN'
                                 ),
