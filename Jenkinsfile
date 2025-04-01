@@ -78,30 +78,48 @@ pipeline {
                     steps {
                         script {
                             withCredentials([sshUserPrivateKey(
-                                credentialsId: 'aws-cred',
+                                credentialsId: 'aws-cred', 
                                 keyFileVariable: 'PRIVATE_KEY_PATH',
                                 usernameVariable: 'SSH_USER'
                             )]) {
-                                // Create a temporary key file with correct permissions
                                 bat """
                                     @echo off
                                     setlocal
+                                    set DEBUG_LOG=%WORKSPACE%\\ssh_debug.log
                                     
-                                    :: Create a clean temporary key file
-                                    set TEMP_KEY=%WORKSPACE%\\temp_ec2_key.pem
-                                    copy "%PRIVATE_KEY_PATH%" "%TEMP_KEY%" > nul
+                                    :: 1. First verify the private key exists
+                                    if not exist "%PRIVATE_KEY_PATH%" (
+                                        echo ERROR: Private key not found at %PRIVATE_KEY_PATH%
+                                        exit /b 1
+                                    )
                                     
-                                    :: Fix permissions (Windows-specific)
-                                    icacls "%TEMP_KEY%" /inheritance:r
-                                    icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
+                                    :: 2. Display basic debug info
+                                    echo DEBUG: Connecting to %SSH_USER%@%EC2_IP% >> %DEBUG_LOG%
+                                    echo DEBUG: Using key file: %PRIVATE_KEY_PATH% >> %DEBUG_LOG%
                                     
-                                    :: Test connection with all config files disabled
-                                    ssh -i "%TEMP_KEY%" -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o ConfigFile=NUL %SSH_USER%@%EC2_IP% "echo Connected successfully"
+                                    :: 3. Test basic SSH connection with full debug output
+                                    ssh -vvv -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o ConfigFile=NUL -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'EC2 connection successful'" >> %DEBUG_LOG% 2>&1
                                     
                                     if errorlevel 1 (
-                                        echo ERROR: Failed to connect to EC2
-                                        del "%TEMP_KEY%" > nul 2>&1
-                                        exit /b 1
+                                        echo ERROR: SSH connection failed. Checking debug information...
+                                        type %DEBUG_LOG%
+                                        
+                                        :: 4. Alternative connection method using Plink (PuTTY)
+                                        echo Trying alternative connection with Plink... >> %DEBUG_LOG%
+                                        if exist "C:\\Program Files\\PuTTY\\plink.exe" (
+                                            "C:\\Program Files\\PuTTY\\plink.exe" -batch -ssh -i "%PRIVATE_KEY_PATH%" %SSH_USER%@%EC2_IP% "echo 'Plink connection successful'" >> %DEBUG_LOG% 2>&1
+                                            if errorlevel 1 (
+                                                echo ERROR: Plink also failed
+                                                type %DEBUG_LOG%
+                                                exit /b 1
+                                            )
+                                            echo SUCCESS: Connected using Plink
+                                        ) else (
+                                            echo ERROR: Plink not available at C:\\Program Files\\PuTTY\\plink.exe
+                                            exit /b 1
+                                        )
+                                    ) else (
+                                        echo SUCCESS: Connected using native SSH
                                     )
                                     
                                     endlocal
