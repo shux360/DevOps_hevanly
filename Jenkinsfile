@@ -162,11 +162,26 @@ pipeline {
                 stage('Deploy Containers') {
                     steps {
                         script {
-                            withCredentials([sshUserPrivateKey(
-                                credentialsId: 'ec2-cred', 
-                                keyFileVariable: 'PRIVATE_KEY',
-                                usernameVariable: 'SSH_USER'
-                            )]) {
+                            withCredentials([
+                                sshUserPrivateKey(
+                                    credentialsId: 'ec2-cred', 
+                                    keyFileVariable: 'PRIVATE_KEY',
+                                    usernameVariable: 'SSH_USER'
+                                ),
+                                usernamePassword(
+                                    credentialsId: 'dockerhub-creds',
+                                    usernameVariable: 'DOCKERHUB_USERNAME',
+                                    passwordVariable: 'DOCKER_TOKEN'
+                                ),
+                                string(
+                                    credentialsId: 'MONGO_URL',
+                                    variable: 'MONGO_URL_SECRET'
+                                ),
+                                string(
+                                    credentialsId: 'JWT_SECRET',
+                                    variable: 'JWT_SECRET_SECRET'
+                                )
+                            ]) {
                                 bat """
                                     @echo off
                                     setlocal
