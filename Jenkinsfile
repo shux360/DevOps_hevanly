@@ -102,7 +102,7 @@ pipeline {
                                     )
                                     
                                     :: Repeat for port 5173
-                                    for /f "tokens=*" %%p in ('aws ec2 describe-security-groups --region %AWS_REGION% --group-ids %SG_ID% --query "SecurityGroups[0].IpPermissions[?ToPort==\`5173\`].ToPort" --output text') do set PORT_EXISTS=%%p
+                                    for /f "tokens=*" %%p in ('aws ec2 describe-security-groups --region %AWS_REGION% --group-ids %SG_ID% --query "SecurityGroups[0].IpPermissions[?ToPort==`5173`].ToPort" --output text') do set PORT_EXISTS=%%p
                                     
                                     if "%PORT_EXISTS%" == "5173" (
                                         echo "Port 5173 already exists in the security group"
