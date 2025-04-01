@@ -77,12 +77,11 @@ pipeline {
                 stage('Connect to EC2') {
                     steps {
                         script {
-                            withCredentials([[
-                                $class: 'AmazonWebServicesCredentialsBinding',
+                            withCredentials([sshUserPrivateKey(
                                 credentialsId: 'ec2-user', // Use your SSH credentials ID
-                                keyFileVariable: 'SSH_KEY_FILE',
-                                usernameVariable: 'SSH_USERNAME'
-                            ]]) {
+                                keyFileVariable: 'SSH_KEY',
+                                usernameVariable: 'SSH_USER'
+                            )]) {
                                 bat """
                                     plink -ssh -i "%SSH_KEY_FILE%" ec2-user@13.218.71.125 "echo Connected successfully"
                                 """
