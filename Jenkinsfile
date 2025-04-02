@@ -166,49 +166,51 @@ pipeline {
                             )]) {
                                 bat """
                                     @echo off
-                                    setlocal
+                                    setlocal EnableDelayedExpansion
                                     echo [INFO] ==== TESTING SSH CONNECTION ====
                                     
                                     :: 1. Create temporary key file
-                                    set TEMP_KEY="%WORKSPACE%\\temp_ec2_key.pem"
-                                    echo %PRIVATE_KEY% > %TEMP_KEY%
+                                    set TEMP_KEY="%WORKSPACE%\\ec2_temp_key.pem"
+                                    echo %PRIVATE_KEY% > !TEMP_KEY!
                                     
-                                    :: 2. Set proper permissions (using SID for reliability)
-                                    echo [INFO] Setting file permissions...
-                                    for /f "tokens=1,2 delims=: " %%a in ('whoami /user /fo csv ^| findstr /r "\".*\""') do (
-                                        set USER_SID=%%~b
+                                    :: 2. Remove all permissions and set strict access
+                                    echo [INFO] Applying strict permissions...
+                                    icacls !TEMP_KEY! /inheritance:r /remove:g Everyone /remove:g Users /remove:g "Authenticated Users"
+                                    
+                                    :: 3. Grant minimal required permissions
+                                    for /f "tokens=2 delims=," %%A in ('whoami /user /fo csv ^| findstr /r "\".*\""') do (
+                                        set CURRENT_SID=%%~A
                                     )
-                                    icacls %TEMP_KEY% /inheritance:r
-                                    icacls %TEMP_KEY% /grant *%USER_SID%:(R)
-                                    icacls %TEMP_KEY% /grant *S-1-5-18:(R)  # SYSTEM account
-                                    attrib +R %TEMP_KEY%
+                                    icacls !TEMP_KEY! /grant *!CURRENT_SID!:(RX)  # Read/execute for current user
+                                    icacls !TEMP_KEY! /grant *S-1-5-18:(RX)      # Read/execute for SYSTEM
+                                    attrib +R !TEMP_KEY!
                                     
-                                    :: 3. Verify PuTTY/plink is available
-                                    where plink || (
-                                        echo [ERROR] plink.exe not found in PATH
+                                    :: 4. Verify permissions (debug)
+                                    echo [DEBUG] Final permissions:
+                                    icacls !TEMP_KEY!
+                                    
+                                    :: 5. Cache host key first
+                                    echo [INFO] Initializing host key...
+                                    echo y | plink -ssh -i !TEMP_KEY! -no-antispoof %SSH_USER%@%EC2_IP% exit
+                                    
+                                    :: 6. Test connection with full debug
+                                    echo [INFO] Attempting SSH connection...
+                                    plink -v -v -v -batch -ssh -i !TEMP_KEY! %SSH_USER%@%EC2_IP% "echo CONNECTION_SUCCESS && whoami && pwd" > "%WORKSPACE%\\ssh_debug.log" 2>&1
+                                    
+                                    :: 7. Check results
+                                    if !ERRORLEVEL! equ 0 (
+                                        echo [SUCCESS] SSH connection verified
+                                        type "%WORKSPACE%\\ssh_debug.log" | findstr /i "CONNECTION_SUCCESS"
+                                    ) else (
+                                        echo [ERROR] SSH failed (Code: !ERRORLEVEL!)
+                                        echo [DEBUG] Last 10 lines of log:
+                                        tail -10 "%WORKSPACE%\\ssh_debug.log"
                                         exit /b 1
                                     )
                                     
-                                    :: 4. First accept host key (non-batch mode)
-                                    echo [INFO] Caching host key...
-                                    echo y | plink -ssh -i %TEMP_KEY% %SSH_USER%@%EC2_IP% exit
-                                    
-                                    :: 5. Test connection with verbose logging
-                                    echo [INFO] Attempting SSH connection...
-                                    plink -batch -ssh -i %TEMP_KEY% %SSH_USER%@%EC2_IP% "echo CONNECTION_SUCCESS && whoami && pwd && hostname" > "%WORKSPACE%\\ssh_log.txt" 2>&1
-                                    
-                                    :: 6. Check results
-                                    set EXIT_CODE=%ERRORLEVEL%
-                                    type "%WORKSPACE%\\ssh_log.txt"
-                                    if %EXIT_CODE% equ 0 (
-                                        echo [SUCCESS] SSH connection verified
-                                    ) else (
-                                        echo [ERROR] SSH failed (Code: %EXIT_CODE%)
-                                        exit /b %EXIT_CODE%
-                                    )
-                                    
-                                    :: 7. Cleanup
-                                    del %TEMP_KEY% >nul 2>&1
+                                    :: 8. Secure cleanup
+                                    cipher /w:!TEMP_KEY! >nul 2>&1
+                                    del !TEMP_KEY! >nul 2>&1
                                     endlocal
                                 """
                             }
