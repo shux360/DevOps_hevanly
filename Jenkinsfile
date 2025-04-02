@@ -169,42 +169,41 @@ pipeline {
                                     setlocal EnableDelayedExpansion
                                     echo [INFO] ==== TESTING SSH CONNECTION ====
                                     
-                                    :: 1. Create temporary key file
-                                    set TEMP_KEY="%WORKSPACE%\\ec2_temp_key.pem"
+                                    :: 1. Create temporary key file in temp directory
+                                    set TEMP_KEY="%TEMP%\\ec2_temp_key.pem"
                                     echo %PRIVATE_KEY% > !TEMP_KEY!
                                     
-                                    :: 2. Remove all permissions and set strict access
-                                    echo [INFO] Applying strict permissions...
-                                    icacls !TEMP_KEY! /inheritance:r /remove:g Everyone /remove:g Users /remove:g "Authenticated Users"
+                                    :: 2. Take ownership first (critical for Jenkins service account)
+                                    takeown /f !TEMP_KEY! /a >nul
+                                    icacls !TEMP_KEY! /reset >nul
                                     
-                                    :: 3. Grant minimal required permissions
-                                    for /f "tokens=2 delims=," %%A in ('whoami /user /fo csv ^| findstr /r "\".*\""') do (
-                                        set CURRENT_SID=%%~A
-                                    )
-                                    icacls !TEMP_KEY! /grant *!CURRENT_SID!:(RX)  
-                                    icacls !TEMP_KEY! /grant *S-1-5-18:(RX)      
+                                    :: 3. Set strict permissions
+                                    echo [INFO] Applying strict permissions...
+                                    icacls !TEMP_KEY! /inheritance:r
+                                    icacls !TEMP_KEY! /grant:r "%USERNAME%":R
+                                    icacls !TEMP_KEY! /grant:r "SYSTEM":R
                                     attrib +R !TEMP_KEY!
                                     
-                                    :: 4. Verify permissions (debug)
-                                    echo [DEBUG] Final permissions:
+                                    :: 4. Verify permissions
+                                    echo [DEBUG] Effective permissions:
                                     icacls !TEMP_KEY!
                                     
-                                    :: 5. Cache host key first
-                                    echo [INFO] Initializing host key...
+                                    :: 5. Cache host key (non-batch mode)
+                                    echo [INFO] Caching host key...
                                     echo y | plink -ssh -i !TEMP_KEY! -no-antispoof %SSH_USER%@%EC2_IP% exit
                                     
                                     :: 6. Test connection with full debug
                                     echo [INFO] Attempting SSH connection...
-                                    plink -v -v -v -batch -ssh -i !TEMP_KEY! %SSH_USER%@%EC2_IP% "echo CONNECTION_SUCCESS && whoami && pwd" > "%WORKSPACE%\\ssh_debug.log" 2>&1
+                                    plink -v -v -batch -ssh -i !TEMP_KEY! %SSH_USER%@%EC2_IP% "echo CONNECTION_SUCCESS && whoami" > "%WORKSPACE%\\ssh.log" 2>&1
                                     
-                                    :: 7. Check results
+                                    :: 7. Process results
                                     if !ERRORLEVEL! equ 0 (
                                         echo [SUCCESS] SSH connection verified
-                                        type "%WORKSPACE%\\ssh_debug.log" | findstr /i "CONNECTION_SUCCESS"
+                                        type "%WORKSPACE%\\ssh.log" | findstr /i "success"
                                     ) else (
                                         echo [ERROR] SSH failed (Code: !ERRORLEVEL!)
-                                        echo [DEBUG] Last 10 lines of log:
-                                        tail -10 "%WORKSPACE%\\ssh_debug.log"
+                                        echo [DEBUG] Connection log:
+                                        type "%WORKSPACE%\\ssh.log"
                                         exit /b 1
                                     )
                                     
