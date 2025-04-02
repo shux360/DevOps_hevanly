@@ -181,8 +181,8 @@ pipeline {
                                     for /f "tokens=2 delims=," %%A in ('whoami /user /fo csv ^| findstr /r "\".*\""') do (
                                         set CURRENT_SID=%%~A
                                     )
-                                    icacls !TEMP_KEY! /grant *!CURRENT_SID!:(RX)  # Read/execute for current user
-                                    icacls !TEMP_KEY! /grant *S-1-5-18:(RX)      # Read/execute for SYSTEM
+                                    icacls !TEMP_KEY! /grant *!CURRENT_SID!:(RX)  
+                                    icacls !TEMP_KEY! /grant *S-1-5-18:(RX)      
                                     attrib +R !TEMP_KEY!
                                     
                                     :: 4. Verify permissions (debug)
