@@ -171,10 +171,10 @@ pipeline {
                                     set TEMP_KEY=%WORKSPACE%\\temp_ec2_key.pem
                                     echo %PRIVATE_KEY% > "%TEMP_KEY%"
                                     icacls "%TEMP_KEY%" /inheritance:r
-                                    icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
+                                    icacls "%TEMP_KEY%" /grant:r "%USERNAME%":r
                                     
                                     echo "Attempting SSH connection to %EC2_IP%..."
-                                    -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% "echo 'SSH connection successful!' && whoami && pwd && hostname"
+                                    plink -batch -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% "echo 'SSH connection successful!' && whoami && pwd && hostname"
                                     
                                     if %ERRORLEVEL% NEQ 0 (
                                         echo "SSH connection failed with error code %ERRORLEVEL%"
