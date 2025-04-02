@@ -174,7 +174,7 @@ pipeline {
                                     icacls "%TEMP_KEY%" /grant:r "%USERNAME%":F
                                     
                                     echo "Attempting SSH connection to %EC2_IP%..."
-                                    plink -batch -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% "echo 'SSH connection successful!' && whoami && pwd && hostname"
+                                    -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% "echo 'SSH connection successful!' && whoami && pwd && hostname"
                                     
                                     if %ERRORLEVEL% NEQ 0 (
                                         echo "SSH connection failed with error code %ERRORLEVEL%"
