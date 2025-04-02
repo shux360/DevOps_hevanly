@@ -166,24 +166,50 @@ pipeline {
                             )]) {
                                 bat """
                                     @echo off
-                                    echo "==== TESTING SSH CONNECTION ===="
+                                    setlocal
+                                    echo [INFO] ==== TESTING SSH CONNECTION ====
                                     
-                                    set TEMP_KEY=%WORKSPACE%\\temp_ec2_key.pem
-                                    echo %PRIVATE_KEY% > "%TEMP_KEY%"
-                                    icacls "%TEMP_KEY%" /inheritance:r
-                                    icacls "%TEMP_KEY%" /grant:r "%USERNAME%":r
+                                    :: 1. Create temporary key file
+                                    set TEMP_KEY="%WORKSPACE%\\temp_ec2_key.pem"
+                                    echo %PRIVATE_KEY% > %TEMP_KEY%
                                     
-                                    echo "Attempting SSH connection to %EC2_IP%..."
-                                    plink -batch -ssh -i "%TEMP_KEY%" %SSH_USER%@%EC2_IP% "echo 'SSH connection successful!' && whoami && pwd && hostname"
+                                    :: 2. Set proper permissions (using SID for reliability)
+                                    echo [INFO] Setting file permissions...
+                                    for /f "tokens=1,2 delims=: " %%a in ('whoami /user /fo csv ^| findstr /r "\".*\""') do (
+                                        set USER_SID=%%~b
+                                    )
+                                    icacls %TEMP_KEY% /inheritance:r
+                                    icacls %TEMP_KEY% /grant *%USER_SID%:(R)
+                                    icacls %TEMP_KEY% /grant *S-1-5-18:(R)  # SYSTEM account
+                                    attrib +R %TEMP_KEY%
                                     
-                                    if %ERRORLEVEL% NEQ 0 (
-                                        echo "SSH connection failed with error code %ERRORLEVEL%"
+                                    :: 3. Verify PuTTY/plink is available
+                                    where plink || (
+                                        echo [ERROR] plink.exe not found in PATH
                                         exit /b 1
-                                    ) else (
-                                        echo "SSH connection successful!"
                                     )
                                     
-                                    del "%TEMP_KEY%" > nul 2>&1
+                                    :: 4. First accept host key (non-batch mode)
+                                    echo [INFO] Caching host key...
+                                    echo y | plink -ssh -i %TEMP_KEY% %SSH_USER%@%EC2_IP% exit
+                                    
+                                    :: 5. Test connection with verbose logging
+                                    echo [INFO] Attempting SSH connection...
+                                    plink -batch -ssh -i %TEMP_KEY% %SSH_USER%@%EC2_IP% "echo CONNECTION_SUCCESS && whoami && pwd && hostname" > "%WORKSPACE%\\ssh_log.txt" 2>&1
+                                    
+                                    :: 6. Check results
+                                    set EXIT_CODE=%ERRORLEVEL%
+                                    type "%WORKSPACE%\\ssh_log.txt"
+                                    if %EXIT_CODE% equ 0 (
+                                        echo [SUCCESS] SSH connection verified
+                                    ) else (
+                                        echo [ERROR] SSH failed (Code: %EXIT_CODE%)
+                                        exit /b %EXIT_CODE%
+                                    )
+                                    
+                                    :: 7. Cleanup
+                                    del %TEMP_KEY% >nul 2>&1
+                                    endlocal
                                 """
                             }
                         }
