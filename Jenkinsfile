@@ -180,8 +180,8 @@ pipeline {
                                     :: 3. Set strict permissions
                                     echo [INFO] Applying strict permissions...
                                     icacls !TEMP_KEY! /inheritance:r
-                                    icacls !TEMP_KEY! /grant:r "%USERNAME%":R
-                                    icacls !TEMP_KEY! /grant:r "SYSTEM":R
+                                    icacls !TEMP_KEY! /grant:rw "%USERNAME%":R
+                                    icacls !TEMP_KEY! /grant:rw "SYSTEM":R
                                     attrib +R !TEMP_KEY!
                                     
                                     :: 4. Verify permissions
